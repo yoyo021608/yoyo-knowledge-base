@@ -1,0 +1,28 @@
+.env
+.env.local
+.env.*.local
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+node_modules/
+dist/
+build/
+coverage/
+.turbo/
+
+# 本地上传内容和运行数据
+data/uploads/
+data/*.db
+
+# IDE
+.idea/
+.vscode/
+
+.DS_Store
+Thumbs.db
