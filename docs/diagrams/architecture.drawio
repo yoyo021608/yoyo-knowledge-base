@@ -1,0 +1,76 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="第 1 页" id="fX_7GJ3B31jBBG1Mr3Pn">
+    <mxGraphModel dx="1048" dy="712" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="950" pageHeight="780" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="T28Ufbaz56UWLzMhmbsY-2" parent="1" style="swimlane;startSize=40;horizontal=0;html=1;swimlaneFillColor=default;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;" value="前端层" vertex="1">
+          <mxGeometry height="180" width="810" x="70" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="T28Ufbaz56UWLzMhmbsY-16" parent="T28Ufbaz56UWLzMhmbsY-2" style="ellipse;whiteSpace=wrap;html=1;align=center;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="apps/web" vertex="1">
+          <mxGeometry height="40" width="100" x="150" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="T28Ufbaz56UWLzMhmbsY-17" parent="T28Ufbaz56UWLzMhmbsY-2" style="ellipse;whiteSpace=wrap;html=1;align=center;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="packages/views" vertex="1">
+          <mxGeometry height="40" width="100" x="350" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="T28Ufbaz56UWLzMhmbsY-18" parent="T28Ufbaz56UWLzMhmbsY-2" style="ellipse;whiteSpace=wrap;html=1;align=center;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="packages/core" vertex="1">
+          <mxGeometry height="40" width="100" x="590" y="25" as="geometry" />
+        </mxCell>
+        <mxCell id="T28Ufbaz56UWLzMhmbsY-19" parent="T28Ufbaz56UWLzMhmbsY-2" style="ellipse;whiteSpace=wrap;html=1;align=center;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="packages/ui" vertex="1">
+          <mxGeometry height="40" width="100" x="590" y="115" as="geometry" />
+        </mxCell>
+        <mxCell id="fe-edge-1" edge="1" parent="T28Ufbaz56UWLzMhmbsY-2" source="T28Ufbaz56UWLzMhmbsY-16" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeColor=#6c8ebf;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="T28Ufbaz56UWLzMhmbsY-17" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fe-edge-2" edge="1" parent="T28Ufbaz56UWLzMhmbsY-2" source="T28Ufbaz56UWLzMhmbsY-17" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeColor=#6c8ebf;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="T28Ufbaz56UWLzMhmbsY-18" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fe-edge-3" edge="1" parent="T28Ufbaz56UWLzMhmbsY-2" source="T28Ufbaz56UWLzMhmbsY-17" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeColor=#6c8ebf;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="T28Ufbaz56UWLzMhmbsY-19" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="T28Ufbaz56UWLzMhmbsY-3" parent="1" style="swimlane;startSize=40;horizontal=0;html=1;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;swimlaneFillColor=default;" value="接入层" vertex="1">
+          <mxGeometry height="120" width="810" x="70" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="T28Ufbaz56UWLzMhmbsY-20" parent="T28Ufbaz56UWLzMhmbsY-3" style="whiteSpace=wrap;html=1;align=center;fillColor=#fff2cc;strokeColor=#d6b656;" value="app/main.py&lt;div&gt;启动/配置读取/Router组装/依赖注入&lt;/div&gt;" vertex="1">
+          <mxGeometry height="60" width="210" x="170" y="30" as="geometry" />
+        </mxCell>
+        <mxCell id="T28Ufbaz56UWLzMhmbsY-22" parent="T28Ufbaz56UWLzMhmbsY-3" style="whiteSpace=wrap;html=1;align=center;fillColor=#fff2cc;strokeColor=#d6b656;" value="app/api&lt;div&gt;路由/请求响应DTO/参数校验/认证依赖&lt;/div&gt;" vertex="1">
+          <mxGeometry height="60" width="210" x="490" y="30" as="geometry" />
+        </mxCell>
+        <mxCell id="T28Ufbaz56UWLzMhmbsY-4" parent="1" style="swimlane;startSize=40;horizontal=0;html=1;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;swimlaneFillColor=default;" value="业务层" vertex="1">
+          <mxGeometry height="120" width="810" x="70" y="360" as="geometry" />
+        </mxCell>
+        <mxCell id="T28Ufbaz56UWLzMhmbsY-24" parent="T28Ufbaz56UWLzMhmbsY-4" style="whiteSpace=wrap;html=1;align=center;fillColor=#f8cecc;strokeColor=#b85450;" value="users&lt;div&gt;注册/登录/改密/忘记密码/注销&lt;/div&gt;" vertex="1">
+          <mxGeometry height="60" width="110" x="80" y="30" as="geometry" />
+        </mxCell>
+        <mxCell id="T28Ufbaz56UWLzMhmbsY-26" parent="T28Ufbaz56UWLzMhmbsY-4" style="whiteSpace=wrap;html=1;align=center;fillColor=#f8cecc;strokeColor=#b85450;" value="documents&lt;div&gt;收录/组织/版本来源/索引/检索&lt;/div&gt;" vertex="1">
+          <mxGeometry height="60" width="110" x="270" y="30" as="geometry" />
+        </mxCell>
+        <mxCell id="T28Ufbaz56UWLzMhmbsY-27" parent="T28Ufbaz56UWLzMhmbsY-4" style="whiteSpace=wrap;html=1;align=center;fillColor=#ffe6cc;strokeColor=#d79b00;" value="agent&lt;div&gt;问题改写/检索编排&lt;/div&gt;&lt;div&gt;子包 rag / tools&lt;/div&gt;" vertex="1">
+          <mxGeometry height="60" width="110" x="460" y="30" as="geometry" />
+        </mxCell>
+        <mxCell id="T28Ufbaz56UWLzMhmbsY-28" parent="T28Ufbaz56UWLzMhmbsY-4" style="whiteSpace=wrap;html=1;align=center;fillColor=#f8cecc;strokeColor=#b85450;" value="sessions&lt;div&gt;会话/消息引用回放&lt;/div&gt;" vertex="1">
+          <mxGeometry height="60" width="110" x="650" y="30" as="geometry" />
+        </mxCell>
+        <mxCell id="T28Ufbaz56UWLzMhmbsY-12" parent="1" style="swimlane;startSize=40;horizontal=0;html=1;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;swimlaneFillColor=default;" value="基础设施层" vertex="1">
+          <mxGeometry height="130" width="810" x="70" y="480" as="geometry" />
+        </mxCell>
+        <mxCell id="T28Ufbaz56UWLzMhmbsY-31" parent="T28Ufbaz56UWLzMhmbsY-12" style="whiteSpace=wrap;html=1;align=center;fillColor=#d5e8d4;strokeColor=#82b366;" value="app/infra&lt;div&gt;持久化/缓存与任务/文件与来源存储/模型配置&lt;/div&gt;" vertex="1">
+          <mxGeometry height="40" width="315" x="252.5" y="45" as="geometry" />
+        </mxCell>
+        <mxCell id="T28Ufbaz56UWLzMhmbsY-13" parent="1" style="swimlane;startSize=40;horizontal=0;html=1;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;swimlaneFillColor=default;" value="存储与外部服务" vertex="1">
+          <mxGeometry height="120" width="810" x="70" y="610" as="geometry" />
+        </mxCell>
+        <mxCell id="T28Ufbaz56UWLzMhmbsY-35" parent="T28Ufbaz56UWLzMhmbsY-13" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#e1d5e7;strokeColor=#9673a6;" value="PostgreSQL&lt;div&gt;+pgvector&lt;/div&gt;" vertex="1">
+          <mxGeometry height="80" width="100" x="158" y="20" as="geometry" />
+        </mxCell>
+        <mxCell id="T28Ufbaz56UWLzMhmbsY-36" parent="T28Ufbaz56UWLzMhmbsY-13" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#e1d5e7;strokeColor=#9673a6;" value="Redis" vertex="1">
+          <mxGeometry height="80" width="100" x="375" y="20" as="geometry" />
+        </mxCell>
+        <mxCell id="T28Ufbaz56UWLzMhmbsY-37" parent="T28Ufbaz56UWLzMhmbsY-13" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#e1d5e7;strokeColor=#9673a6;" value="模型API" vertex="1">
+          <mxGeometry height="80" width="100" x="593" y="20" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
