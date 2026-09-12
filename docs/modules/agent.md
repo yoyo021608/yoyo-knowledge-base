@@ -2,31 +2,31 @@
 
 ## 功能职责
 
-Agent 编排模块负责把用户问题组织成一轮完整的知识调用过程，并把运行结果交给会话模块保存。
+Agent 编排模块负责把用户问题组织成一轮完整的知识调用过程，产出带来源的回答结果。
 
 - 组装当前问题、会话上下文和检索结果。
-- 通过 RAG 子包进行问题改写、检索编排和上下文组装。
-- 通过工具适配层调用 documents 的检索能力。
-- 组织上下文并直接调用模型 SDK 生成回答。
+- 对问题做改写、检索编排和上下文组装。
+- 在需要时调用知识检索能力获取知识片段。
+- 一次检索不够时，自己换一组查询再查一次，不把重问推给用户。
+- 组织上下文并生成回答，返回带来源引用的结果。
 - 判断检索证据是否足够，并规范化回答引用。
 - 管理 Run 状态、过程事件、取消、继续和断线重连恢复。
 
 ## 边界
 
-- Agent 负责“如何完成一次回答”的编排，不拥有文档、专题、版本和索引数据。
-- RAG 是 Agent 的子包，负责检索流程编排；文档内容、切分、版本、索引和检索数据仍属于 documents。
-- Agent 不直接访问 documents 的数据库；需要知识时通过 DocumentSearchPort 或工具适配层调用。
-- 工具只定义参数、权限和结果适配，不实现文档切分、版本管理和检索算法。
-- sessions 负责保存会话、消息和 Citation；Agent 负责产生回答结果和运行事件。
-- 模型调用直接使用官方 SDK 或兼容 SDK，不创建没有实际收益的通用 LLM Provider 层。
+- Agent 负责“如何完成一次回答”的编排，不拥有知识内容本身。
+- 证据判断只决定证据够不够、要不要再查；知识内容的切分、版本和索引不由 Agent 维护。
+- Agent 不直接读取知识内容和索引数据；需要知识时通过检索 Port 或工具适配层调用。
+- 工具只定义参数、权限和结果适配，不实现知识内容的加工和检索。
+- Agent 只产生回答结果和运行事件，对话记录的保存由调用方负责。
 - 过程事件是可回放的运行通知，最终回答、消息和引用仍然以持久化业务数据为准。
 - 证据不足时返回明确状态，不把模型推测伪装成知识库结论。
 
 ## 内部拆分
 
-### RAG 编排（RAG Orchestration）
+### 证据判断（Evidence Assessment）
 
-RAG 编排是 Agent 内部的子包，负责把问题、检索、上下文和证据判断串起来；不直接查询文档数据库，也不拥有文档索引。
+证据判断负责判断检索结果是否足以支持回答，并在不足时给出下一次要查什么；不负责执行检索、组装上下文和生成回答。
 
 ~~~go
 type EvidenceDecision struct {
@@ -35,19 +35,35 @@ type EvidenceDecision struct {
     HitCount int
 }
 
+type NextRetrieval struct {
+    Retry bool
+    Query string // 需要再查时使用的新查询。
+}
+
 type RAGPipeline interface {
-    Rewrite(input RewriteInput) (RewrittenQuestion, error) // 将用户问题整理为可检索问题。
-    Retrieve(plan RetrievalPlan, userID string) ([]SearchHitContext, error) // 通过 Port 获取知识片段。
     AssessEvidence(hits []SearchHitContext) (EvidenceDecision, error) // 判断当前检索结果是否足以支持回答。
-    BuildContext(input ContextInput) (ContextPacket, error) // 组装模型调用上下文。
+    PlanNextRetrieval(decision EvidenceDecision) (NextRetrieval, error) // 证据不足时给出下一次查询。
 }
 ~~~
 
 ### 上下文组装（Context Assembly）
 
-上下文组装负责把用户问题、会话历史和检索结果整理成模型输入；不负责查询数据库和保存最终消息。
+上下文组装负责把用户问题、会话历史和检索结果整理成模型输入；不负责读取历史数据和保存最终消息。
 
 ~~~go
+type MessageContext struct {
+    Role string // user、assistant。
+    Content string
+}
+
+type SearchHitContext struct {
+    DocumentID string
+    VersionID string
+    Title string
+    ContentSnippet string
+    Score float64
+}
+
 type ContextInput struct {
     Question string
     History []MessageContext
@@ -87,7 +103,7 @@ type QuestionRewriter interface {
 
 ### 检索编排（Retrieval Orchestration）
 
-检索编排负责决定是否检索、使用什么检索参数和如何合并结果；不保存文档，也不复制 documents 的检索实现。
+检索编排负责把要查的问题变成检索参数、执行召回并合并结果；不判断结果够不够，不保存文档，也不复制 documents 的检索实现。
 
 ~~~go
 type RetrievalPlan struct {
@@ -97,7 +113,8 @@ type RetrievalPlan struct {
 }
 
 type RetrievalOrchestrator interface {
-    Retrieve(plan RetrievalPlan, userID string) ([]SearchHitContext, error) // 通过检索 Port 获取本轮知识上下文。
+    PlanRetrieval(question string, userID string) (RetrievalPlan, error) // 把要查的问题整理成本轮检索参数。
+    Retrieve(plan RetrievalPlan, userID string) ([]SearchHitContext, error) // 按检索计划召回并合并结果。
 }
 ~~~
 
@@ -132,30 +149,18 @@ type DocumentSearchInput struct {
     Limit int
 }
 
-type DocumentSearchPort interface {
-    Search(input DocumentSearchInput) ([]SearchHitContext, error) // 调用 documents 的知识检索能力。
+type ToolSearchPort interface {
+    Search(input DocumentSearchInput) ([]SearchHitContext, error) // 通过检索 Port 获取本轮知识上下文。
 }
 
 type ToolPorts struct {
-    DocumentSearch DocumentSearchPort
+    DocumentSearch ToolSearchPort
 }
 
 type ToolAdapter interface {
     Definitions() []ToolDefinition // 返回本次 Agent 可以使用的工具定义。
     Execute(call ToolCall, ports ToolPorts) (ToolResult, error) // 校验工具调用并通过 Port 执行。
 }
-~~~
-
-工具调用关系固定为：
-
-~~~text
-Agent / agent/rag
-  ↓
-ToolAdapter
-  ↓
-DocumentSearchPort
-  ↓
-documents
 ~~~
 
 ### 回答与引用（Answer & Citation）
@@ -168,7 +173,7 @@ type AnswerDraft struct {
     SourceHits []SearchHitContext
 }
 
-type Citation struct {
+type AnswerCitation struct {
     DocumentID string
     DocumentVersionID string
     SourceSnapshot string
@@ -177,7 +182,7 @@ type Citation struct {
 
 type AnswerResult struct {
     Text string
-    Citations []Citation
+    Citations []AnswerCitation
     EvidenceStatus string // sufficient、insufficient、failed。
 }
 
@@ -216,37 +221,32 @@ type RunControl interface {
 }
 ~~~
 
-过程事件、取消、继续和重连恢复统一属于 Agent 的运行控制，不放入 sessions。
+过程事件、取消、继续和重连恢复统一属于 Agent 的运行控制。过程事件先持久化、再作为通知推送出去；断线后按 `event_seq` 回放，内存里的临时状态不作为事实来源。
 
 ## 流程
 
+用户提问后由 Agent 组织一轮完整的知识调用并产出带来源的回答结果，记录的保存由调用方负责；证据不足时返回明确的结构化结果，过程中用户可以取消、继续，断线后可以重连补回过程事件。
+
 ~~~text
-// 用户发送问题
+// 用户提问
 RunControl.Start(...)
 QuestionRewriter.Rewrite(...)
+RetrievalOrchestrator.PlanRetrieval(...)
 RetrievalOrchestrator.Retrieve(...)
 RAGPipeline.AssessEvidence(...)
-
-// 证据足够时生成回答
 ContextAssembler.Build(...)
 AnswerGenerator.Generate(...)
 
-// 证据不足时返回结构化结果
-AnswerGenerator.GenerateInsufficientEvidence(...)
+// 一次没查够时再查一次
+RAGPipeline.PlanNextRetrieval(...)
+RetrievalOrchestrator.Retrieve(...)
 
-// 需要调用文档工具时
-ToolAdapter.Definitions(...)
-ToolAdapter.Execute(...)
-DocumentSearchPort.Search(...)
-
-// 用户取消或继续
+// 用户取消
 RunControl.Cancel(...)
+
+// 用户继续
 RunControl.Continue(...)
 
 // 用户断线后重连
-RunControl.ReadEvents(runID, afterSeq)
-
-// 运行完成后交给会话模块保存
-SessionMessageWriter.SaveAnswer(...)
-CitationWriter.Save(...)
+RunControl.ReadEvents(...)
 ~~~
