@@ -15,13 +15,13 @@
 
 - `server/app/main.py`：FastAPI 启动、配置读取、Router 组装、依赖注入和基础生命周期。
 - `server/app/api`：HTTP 路由、请求/响应 DTO、参数校验、认证依赖和响应组装；不写领域业务。
-- `server/app/auth`：注册、登录、忘记密码、密码重置、注销和当前用户身份。
+- `server/app/users`：注册、登录、修改密码、忘记密码、密码重置、注销和当前用户身份。
 - `server/app/documents`：单个录入、批量录入、文档列表、详情、编辑、专题、标签、收藏、关联、来源、版本和索引刷新。
 - `server/app/agent`：上下文、问题改写、检索编排、回答生成、引用选择和运行控制。
 - `server/app/agent/rag`：与 Agent 强绑定的 RAG 编排，包括问题改写、检索计划、上下文组装、回答生成和证据判断；文档数据与索引实现仍归 `documents`。
 - `server/app/agent/tools`：工具定义、入参/出参、权限声明和适配；不保存文档，不实现文档检索细节。
 - `server/app/sessions`：会话、消息、会话改名、历史记录和引用回放；不负责回答策略和过程事件。
-- `server/app/infra`：数据库连接、缓存、后台任务、文件存储和模型配置；不承载产品业务判断。
+- `server/app/infra`：数据库连接、缓存、后台任务、文件存储、向量库访问和模型配置；不承载产品业务判断。
 - `apps/web`：React 路由、页面入口、Provider、平台装配和前端环境变量。
 - `packages/core`：不依赖 React、DOM 或运行时环境变量的无头业务能力、类型和 API 客户端。
 - `packages/ui`：通用展示组件、样式和交互基础设施；不依赖 `packages/core`。

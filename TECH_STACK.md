@@ -7,7 +7,7 @@
 | 层次 | 选择 | 用途 |
 | --- | --- | --- |
 | 运行环境 | Node.js 22.13+ | 前端工具链和 Monorepo 脚本 |
-| 包管理 | pnpm 11.17.0 | Workspace 依赖管理 |
+| 包管理 | pnpm 11+ | Workspace 依赖管理 |
 | 后端运行环境 | Python 3.12+ | FastAPI 服务和后台任务 |
 | 主数据库 | PostgreSQL 16 | 用户、文档、版本、会话和问答数据 |
 | 缓存与任务 | Redis 7 | 缓存、短期状态和索引刷新任务 |
@@ -49,7 +49,7 @@
 - Black：Python 代码格式化。
 - mypy：Python 类型检查。
 
-后端按领域拆包：`api` 只负责 HTTP 边界，`auth`、`documents`、`agent`、`sessions` 负责各自业务，`infra` 提供基础设施。不要建立一个承载所有业务的通用 `services` 包。
+后端按领域拆包：`api` 只负责 HTTP 边界，`users`、`documents`、`agent`、`sessions` 负责各自业务，`infra` 提供基础设施。不要建立一个承载所有业务的通用 `services` 包。
 
 ## 数据与检索
 
