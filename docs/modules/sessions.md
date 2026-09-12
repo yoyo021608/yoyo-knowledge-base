@@ -5,31 +5,31 @@
 会话模块负责保存用户与知识库之间的对话记录，让用户能够查看、命名、回放和引用历史回答。
 
 - 创建和查询用户会话。
-- 保存用户消息和 Agent 回答。
+- 保存用户消息和系统回答。
 - 修改会话名称。
+- 删除会话。
 - 保存回答引用和来源快照。
 - 按用户范围回放历史消息与引用。
 
 ## 边界
 
-- Session、Message 和 Citation 属于 sessions 模块。
-- 会话模块不负责问题改写、文档检索、回答生成和 Agent 运行编排。
-- 过程事件、取消、继续和断线重连统一由 agent 的运行控制负责，sessions 不保存 RunEvent。
-- 会话引用只保存回答与文档版本之间的关联，不复制 documents 的文档内容和索引实现。
-- 会话名称可以由用户修改；自动生成名称如果需要，也只能使用 Agent 返回的结果，不把命名逻辑扩散到其他模块。
+- 会话数据以 Session 和 Message 为主体；回答引用挂在某条回答消息上，不单独存在。
+- 会话模块只保存对话数据，不参与回答是怎么产生的。
+- 过程事件不落入会话数据；取消、继续和重连不在这里处理。
+- 引用只保存回答与来源版本的关联，不复制来源正文和索引内容。
+- 会话名称由用户自行命名，本模块不做命名推断。
 
 ## 内部拆分
 
 ### 会话管理（Session Management）
 
-会话管理负责创建、查询和归属校验；不负责回答策略和运行状态。
+会话管理负责创建、查询、改名、删除和归属校验；不负责回答策略和运行状态。
 
 ~~~go
 type Session struct {
     ID string
     UserID string
     Name string
-    Status string // active、archived。
     CreatedAt time.Time
     UpdatedAt time.Time
 }
@@ -39,10 +39,18 @@ type SessionInput struct {
     Name string
 }
 
+type RenameSessionInput struct {
+    SessionID string
+    UserID string
+    Name string
+}
+
 type SessionManagement interface {
     Create(input SessionInput) (Session, error) // 创建属于当前用户的会话。
     List(userID string) ([]Session, error) // 查询当前用户的会话列表。
     Get(sessionID string, userID string) (Session, error) // 获取当前用户可访问的会话。
+    Rename(input RenameSessionInput) (Session, error) // 修改当前用户会话名称。
+    Delete(sessionID string, userID string) error // 删除会话及其消息。
 }
 ~~~
 
@@ -54,7 +62,7 @@ type SessionManagement interface {
 type Message struct {
     ID string
     SessionID string
-    Role string // user、assistant、system。
+    Role string // user、assistant。
     Content string
     CreatedAt time.Time
 }
@@ -62,22 +70,6 @@ type Message struct {
 type MessageHistory interface {
     Append(message Message) error // 保存一条会话消息。
     List(sessionID string, userID string) ([]Message, error) // 按会话顺序读取历史消息。
-}
-~~~
-
-### 会话命名（Session Naming）
-
-会话命名负责修改和读取会话名称；不负责修改消息内容和运行状态。
-
-~~~go
-type RenameSessionInput struct {
-    SessionID string
-    UserID string
-    Name string
-}
-
-type SessionNaming interface {
-    Rename(input RenameSessionInput) (Session, error) // 修改当前用户会话名称。
 }
 ~~~
 
@@ -103,6 +95,8 @@ type CitationReplay interface {
 
 ## 流程
 
+用户创建会话、提问、改名或删除会话，之后回看历史消息和回答引用。
+
 ~~~text
 // 用户创建会话
 SessionManagement.Create(...)
@@ -110,12 +104,15 @@ SessionManagement.Create(...)
 // 保存用户问题
 MessageHistory.Append(...)
 
-// Agent 完成回答后保存消息和引用
+// 系统回答完成后保存消息和引用
 MessageHistory.Append(...)
 CitationReplay.Attach(...)
 
 // 用户修改会话名称
-SessionNaming.Rename(...)
+SessionManagement.Rename(...)
+
+// 用户删除会话
+SessionManagement.Delete(...)
 
 // 用户查看历史
 SessionManagement.List(...)
