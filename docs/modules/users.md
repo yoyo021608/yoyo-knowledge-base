@@ -1,22 +1,23 @@
-# 认证模块（Authentication）
+# 账户模块（Users）
 
 ## 功能职责
 
-认证模块负责建立和维护用户身份，让用户能够安全地进入、使用和退出个人知识库。
+账户模块负责建立和维护用户身份，让用户能够安全地进入、使用和退出个人知识库。
 
 - 用户注册和账户创建。
 - 用户登录和凭证签发。
 - 当前用户身份解析。
 - 忘记密码、一次性重置凭证和密码重置。
+- 修改密码。
 - 注销当前登录会话。
 - 向其他模块提供当前用户身份，不替其他模块判断资源业务权限。
 
 ## 边界
 
-- 只负责账户身份、密码凭证和登录会话，不负责文档内容、知识检索或问答生成。
-- 用户能否访问某条文档或某个会话，由对应业务模块结合当前用户身份判断；auth 不拥有这些资源。
+- 只负责账户身份、密码凭证和登录会话，不接管其他领域的业务判断。
+- 身份只回答“请求来自谁”，不回答“这个人能操作哪些资源”。
 - 忘记密码只负责生成、校验和失效一次性重置凭证，不负责邮件或短信服务本身。
-- 注销只撤销当前登录凭证，不删除用户已经保存的文档、专题和会话数据。
+- 注销只撤销当前登录凭证，用户已经保存的数据不受影响。
 - 密码只能保存不可逆摘要，任何接口都不能返回原始密码或密码摘要。
 
 ## 内部拆分
@@ -30,7 +31,6 @@ type User struct {
     ID string
     Email string
     PasswordHash string
-    Status UserStatus // active、disabled。
     CreatedAt time.Time
 }
 
@@ -47,7 +47,7 @@ type Registration interface {
 
 ### 登录会话（Login Session）
 
-登录会话负责校验密码、签发凭证、解析当前用户和撤销凭证；不负责修改用户资料或访问业务资源。
+登录会话负责校验密码、签发凭证和撤销凭证；不负责解析当前用户或修改用户资料。
 
 ~~~go
 type LoginInput struct {
@@ -62,16 +62,21 @@ type AuthToken struct {
 
 type LoginSession interface {
     Login(input LoginInput) (AuthToken, User, error) // 校验密码并签发登录凭证。
-    CurrentUser(accessToken string) (User, error) // 解析凭证并返回当前用户。
     Logout(accessToken string) error // 撤销当前登录凭证。
 }
 ~~~
 
-### 密码恢复（Password Recovery）
+### 密码管理（Password Management）
 
-密码恢复负责创建、校验和消费一次性重置凭证；不负责直接暴露用户是否存在，也不负责通知渠道的具体实现。
+密码管理负责创建重置凭证、重置密码和修改密码；不负责登录时的密码校验，也不负责通知渠道的具体实现。
 
 ~~~go
+type ChangePasswordInput struct {
+    UserID string
+    OldPassword string
+    NewPassword string
+}
+
 type PasswordResetRequest struct {
     Email string
 }
@@ -83,7 +88,8 @@ type PasswordResetToken struct {
     UsedAt *time.Time
 }
 
-type PasswordRecovery interface {
+type PasswordManagement interface {
+    ChangePassword(input ChangePasswordInput) error // 校验旧密码并更新密码摘要。
     RequestReset(input PasswordResetRequest) error // 创建短时有效的重置凭证并交给通知适配层。
     ResetPassword(token string, newPassword string) error // 校验一次性凭证并更新密码摘要。
 }
@@ -104,7 +110,7 @@ func RequireIdentity(accessToken string) (IdentityContext, error) // 校验请�
 
 ## 流程
 
-用户先注册或登录，之后带着登录凭证访问其他领域；忘记密码时使用一次性凭证完成重置，注销时撤销当前凭证。
+用户先注册或登录，之后带着登录凭证访问其他领域；可以主动修改密码，忘记密码时使用一次性凭证完成重置，注销时撤销当前凭证。
 
 ~~~text
 // 注册
@@ -119,8 +125,11 @@ LoginSession.Login(...)
 RequireIdentity(...)
 
 // 忘记密码
-PasswordRecovery.RequestReset(...)
-PasswordRecovery.ResetPassword(...)
+PasswordManagement.RequestReset(...)
+PasswordManagement.ResetPassword(...)
+
+// 修改密码
+PasswordManagement.ChangePassword(...)
 
 // 注销
 LoginSession.Logout(...)
