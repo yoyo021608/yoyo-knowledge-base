@@ -12,11 +12,11 @@
 
 ## 边界
 
-- 只提供资源访问和外部连接，不判断用户是否应该创建文档、修改会话或生成答案。
-- 数据库入口不包装成承载所有业务规则的万能 Store；User、Document、Session 等数据由所属领域负责。
-- 缓存和任务系统不能成为核心数据唯一来源，重要状态必须能够从 PostgreSQL 恢复。
-- 模型配置只提供 SDK 所需的地址、密钥和模型名称；模型选择、提示词和问答编排属于 Agent。
-- 文件存储只负责文件内容和来源快照，不负责文档标题、专题、版本和索引状态。
+- 只提供资源访问和外部连接，不判断任何业务动作是否应该发生。
+- 数据库入口不包装成承载所有业务规则的万能 Store。
+- 缓存和任务系统不能成为核心数据唯一来源，重要状态必须能从核心存储恢复。
+- 只提供模型服务的连接配置，不参与提示词、模型选择和调用编排。
+- 文件存储只保存字节内容，业务对象的元数据由所属领域自己保存。
 
 ## 内部拆分
 
@@ -47,13 +47,6 @@ func CommitTransaction(transaction Transaction) error // 提交当前事务中�
 func RollbackTransaction(transaction Transaction) error // 回滚当前事务中的数据库变化。
 func CloseDatabase(session DatabaseSession) error // 关闭数据库连接并释放资源。
 ~~~
-
-业务数据归属如下：
-
-- auth 负责 User、登录凭证和密码重置数据。
-- documents 负责 Topic、Document、DocumentVersion、SourceSnapshot 和索引状态。
-- sessions 负责 Session、Message 和 Citation。
-- agent 负责 Run、RunEvent 和运行控制状态。
 
 ### 缓存与任务（Cache & Jobs）
 
@@ -104,7 +97,7 @@ type FileStorage interface {
 
 ### 模型配置（Model Configuration）
 
-模型配置负责从运行环境读取并校验模型 SDK 所需的配置；不负责设计提示词、检索编排、回答生成或保存回答。
+模型配置负责从运行环境读取并校验模型服务调用所需的配置；不负责设计提示词、检索编排、回答生成或保存回答。
 
 ~~~go
 type ModelConfig struct {
@@ -119,17 +112,9 @@ func LoadModelConfig() (ModelConfig, error) // 从运行环境读取模型配置
 func ValidateModelConfig(config ModelConfig) error // 检查当前模型配置是否满足运行要求。
 ~~~
 
-模型调用关系为：
-
-~~~text
-infra
-  ↓ 提供 ModelConfig
-agent
-  ↓ 直接调用模型 SDK
-模型服务
-~~~
-
 ## 流程
+
+基础设施不直接面向用户；业务模块通过它访问数据库、缓存、文件存储和后台任务，服务启动时建立连接，关闭时释放资源。
 
 ~~~text
 // 启动服务
@@ -140,9 +125,6 @@ ValidateModelConfig(...)
 // 保存业务数据
 BeginTransaction(...)
 CommitTransaction(...)
-
-// 业务失败时回滚
-RollbackTransaction(...)
 
 // 投递文档索引刷新任务
 CacheJobs.Enqueue(...)
