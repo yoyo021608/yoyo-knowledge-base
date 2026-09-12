@@ -25,7 +25,7 @@ yoyo-knowledge-base/
 ├── AGENTS.md
 ├── docker-compose.yml
 ├── .env.example
-├── .github/                      # Issue / PR 模板
+├── .github/                      # Issue / PR 模板与 CI 配置
 ├── apps/
 │   └── web/                      # 路由、页面入口、Provider、平台装配
 ├── packages/                     # 前端共享包
@@ -73,7 +73,7 @@ yoyo-knowledge-base/
 │           ├── cache.py
 │           ├── storage.py        # 文件与来源快照存储
 │           ├── vector_store.py
-│           └── llm.py            # 模型 SDK 客户端的创建与配置
+│           └── llm.py            # 模型配置的读取与校验
 ├── tests/                        # 后端测试，与 data/ 并列
 │   ├── api/
 │   ├── users/
@@ -139,7 +139,7 @@ apps/web → packages/views → packages/core
 - `app/config.py`：环境变量、模型名、索引与缓存参数；放在顶层，各层直接读取。
 - `app/api`：HTTP 路由、请求/响应 DTO、参数校验、认证依赖和响应组装。
 - `app/users`、`app/documents`、`app/agent`、`app/sessions`：按领域拆分的业务包，见第 3 节；`app/agent` 下带 `rag` 和 `tools` 两个子包。
-- `app/infra`：数据库连接、缓存、后台任务、文件存储、向量库访问和模型 SDK 客户端。
+- `app/infra`：数据库连接、缓存、后台任务、文件存储、向量库访问和模型配置。
 
 ### 领域包内部约定
 
@@ -173,7 +173,7 @@ app/documents/
 - 对外请求/响应 DTO 在 `api` 或对应领域的 schema 中定义，不能把 ORM 对象直接作为公开响应。
 - agent 只能通过 `DocumentSearchPort` 等显式接口调用文档能力。
 - 索引、切片和向量数据由 documents 独占；agent 不直接连接向量库。
-- 数据库、Redis、文件存储、向量库和模型 SDK 客户端只能由 `app/infra` 创建；领域模块不自己新建外部客户端。
+- 数据库、Redis、文件存储和向量库连接只能由 `app/infra` 创建；领域模块不自己新建外部客户端。
 - 不使用通用 `utils`、`services` 或 `repository` 包承载所有业务。
 - 不创建没有实际职责的通用 `server/app/ai` 或深层 LLM Provider 包装。
 - 模型调用直接使用官方 SDK 或兼容 SDK。
