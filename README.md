@@ -14,11 +14,20 @@
 # 1. 启动本地依赖服务
 docker compose up -d postgres redis
 
-# 2. 准备环境变量并安装依赖
+# 2. 准备环境变量
 cp .env.example .env
+
+# 3. 创建并激活 Python 虚拟环境
+python -m venv server/.venv
+source server/.venv/bin/activate
+cd server
+python -m pip install --editable ".[dev]"
+cd ..
+
+# 4. 安装前端依赖
 pnpm install
 
-# 3. 启动前后端
+# 5. 启动前后端
 pnpm dev
 ~~~
 
@@ -43,6 +52,20 @@ Windows PowerShell 可以用下面的命令复制环境变量模板：
 ~~~powershell
 Copy-Item .env.example .env
 ~~~
+
+Windows PowerShell 的 Python 环境准备命令如下：
+
+~~~powershell
+python -m venv server\.venv
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\server\.venv\Scripts\Activate.ps1
+Set-Location server
+python -m pip install --editable ".[dev]"
+Set-Location ..
+pnpm install
+~~~
+
+每次新开终端运行后端命令前，都需要重新激活 `server/.venv`。退出虚拟环境使用 `deactivate`。
 
 `.env` 只用于本地运行，不要提交到 GitHub。接入真实模型时填写 `OPENAI_API_KEY`；使用 `LLM_PROVIDER=fake` 时可以保持为空。
 

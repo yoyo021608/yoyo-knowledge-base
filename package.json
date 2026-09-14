@@ -1,0 +1,24 @@
+{
+  "name": "yoyo-knowledge-base",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.26.0",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"pnpm dev:api\" \"pnpm dev:web\"",
+    "dev:api": "cd server && python -m uvicorn app.main:app --reload --port 8000",
+    "dev:web": "pnpm --filter @yoyo/web dev",
+    "build:web": "pnpm --filter @yoyo/web build",
+    "test": "pnpm test:api && pnpm test:web",
+    "test:api": "cd server && python -m pytest",
+    "test:web": "pnpm --filter @yoyo/web test",
+    "lint": "pnpm lint:api && pnpm lint:web",
+    "lint:api": "cd server && python -m ruff check . && python -m mypy .",
+    "lint:web": "pnpm --filter @yoyo/web lint"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
