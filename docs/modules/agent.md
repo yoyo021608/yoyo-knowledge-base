@@ -46,6 +46,8 @@ type RAGPipeline interface {
 }
 ~~~
 
+检索结果进入回答前需要经过权限、当前版本、重复片段过滤和相关性重排。证据不足时只允许有限次改写与重检索，仍不足就返回明确的证据不足结果。
+
 ### 上下文组装（Context Assembly）
 
 上下文组装负责把用户问题、会话历史和检索结果整理成模型输入；不负责读取历史数据和保存最终消息。
@@ -80,6 +82,8 @@ type ContextAssembler interface {
     Build(input ContextInput) (ContextPacket, error) // 生成本轮模型调用所需的上下文。
 }
 ~~~
+
+上下文组装使用固定的 token 预算，优先保留高分且能够形成引用的片段；内容过长时压缩或分批摘要，不能无限增加检索结果数量。
 
 ### 问题改写（Question Rewrite）
 
@@ -159,7 +163,7 @@ type ToolPorts struct {
 
 type ToolAdapter interface {
     Definitions() []ToolDefinition // 返回本次 Agent 可以使用的工具定义。
-    Execute(call ToolCall, ports ToolPorts) (ToolResult, error) // 校验工具调用并通过 Port 执行。
+    Handle(call ToolCall, ports ToolPorts) (ToolResult, error) // 校验工具调用并通过 Port 处理。
 }
 ~~~
 
@@ -213,6 +217,16 @@ type RunEvent struct {
     CreatedAt time.Time
 }
 
+type RunSnapshot struct {
+    RunID string
+    Step string
+    InputSummary string
+    RetrievalPlan string
+    SelectedEvidence []string
+    RetryCount int
+    NextStep string
+}
+
 type RunControl interface {
     Start(sessionID string, question string) (Run, error) // 创建并启动一次问答运行。
     Cancel(runID string) error // 请求取消正在运行的任务。
@@ -221,9 +235,11 @@ type RunControl interface {
 }
 ~~~
 
-过程事件、取消、继续和重连恢复统一属于 Agent 的运行控制。过程事件先持久化、再作为通知推送出去；断线后按 `event_seq` 回放，内存里的临时状态不作为事实来源。
+过程事件、取消、继续和重连恢复统一属于 Agent 的运行控制。每个关键步骤先保存 RunSnapshot，再记录 RunEvent 并作为通知推送；进程重启从快照恢复，客户端断线后按 `event_seq` 回放，内存里的临时状态不作为事实来源。模型或检索能力失败时保留已完成步骤、失败原因和重试次数，不可恢复时返回明确的失败状态。
 
-## 流程
+恢复时以快照和已保存的步骤结果为准：已经完成的步骤不重复产生回答或引用，未完成的步骤从最近快照继续。只有可重试的外部失败才进行有限重试，超过次数或遇到不可重试错误就保留失败原因并结束本次运行。
+
+## 模块联动示例
 
 用户提问后由 Agent 组织一轮完整的知识调用并产出带来源的回答结果，记录的保存由调用方负责；证据不足时返回明确的结构化结果，过程中用户可以取消、继续，断线后可以重连补回过程事件。
 
