@@ -236,6 +236,15 @@ type SourceManager interface {
 索引刷新负责从最新版本生成可检索内容并更新索引；不负责改变文档标题、专题、收藏和版本关系。
 
 ~~~go
+type DocumentChunk struct {
+    ID string
+    DocumentID string
+    VersionID string
+    Position int
+    Content string
+    SourceSnapshot string
+}
+
 type RefreshRequest struct {
     DocumentID string
     VersionID string
@@ -255,11 +264,13 @@ type DocumentIndexPort interface {
 }
 ~~~
 
-刷新按最新版本执行：先写入 queued 状态，异步执行后更新为 processing、ready 或 failed，失败可重试；刷新状态以持久化数据为准。
+刷新按最新版本执行：先写入 queued 状态，异步执行后更新为 processing、ready 或 failed，失败可重试；刷新状态以持久化数据为准。处理顺序是保存版本、切分内容、生成全文索引和向量索引，全部完成后才标记为 ready。
+
+每个可检索片段保留所属文档版本和来源信息，检索结果可以回到当时的文档版本和来源快照。
 
 ### 检索（Search）
 
-检索负责按当前用户范围召回匹配的知识片段；不负责切分内容、刷新索引和生成回答。
+检索负责按当前用户范围召回并整理匹配的知识片段；不负责问题改写、证据判断、上下文组装和生成回答。
 
 ~~~go
 type SearchQuery struct {
@@ -284,6 +295,8 @@ type DocumentSearchPort interface {
     Search(query SearchQuery) ([]SearchHit, error) // 按当前用户范围执行知识检索。
 }
 ~~~
+
+检索先分别取得关键词、全文和向量候选，再合并去重，并应用用户范围、文档状态和当前版本过滤，最后按检索相关性返回有限数量的候选片段。documents 负责把候选知识找出来，不判断证据是否足够，不决定是否再次检索，也不负责生成回答。`DocumentSearchPort` 是 Agent 与 documents 之间唯一的检索契约，工具适配层同样通过它调用；Agent 可以在候选集上继续做本轮回答所需的证据判断和上下文选择。
 
 ### 导出（Export）
 

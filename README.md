@@ -18,11 +18,9 @@ docker compose up -d postgres redis
 cp .env.example .env
 
 # 3. 创建并激活 Python 虚拟环境
-python -m venv server/.venv
-source server/.venv/bin/activate
-cd server
+python -m venv .venv
+source .venv/bin/activate
 python -m pip install --editable ".[dev]"
-cd ..
 
 # 4. 安装前端依赖
 pnpm install
@@ -31,7 +29,7 @@ pnpm install
 pnpm dev
 ~~~
 
-`docker-compose.yml` 只编排 PostgreSQL、Redis 这类本地依赖服务，前后端本身由 `pnpm dev` 直接启动，所以仓库不放 Dockerfile。停止依赖服务用 `docker compose down`。
+`docker-compose.yml` 只编排 PostgreSQL、Redis 这类本地依赖服务。`apps/api` 负责 FastAPI 启动和装配，Python 业务包归 `packages/backend`；前端由 `apps/web` 启动。停止依赖服务用 `docker compose down`。
 
 也可以分开启动：
 
@@ -56,16 +54,16 @@ Copy-Item .env.example .env
 Windows PowerShell 的 Python 环境准备命令如下：
 
 ~~~powershell
-python -m venv server\.venv
+python -m venv .venv
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\server\.venv\Scripts\Activate.ps1
-Set-Location server
+.\.venv\Scripts\Activate.ps1
 python -m pip install --editable ".[dev]"
-Set-Location ..
 pnpm install
 ~~~
 
-每次新开终端运行后端命令前，都需要重新激活 `server/.venv`。退出虚拟环境使用 `deactivate`。
+每次新开终端运行后端命令前，都需要重新激活 `.venv`。退出虚拟环境使用 `deactivate`。
+
+如果你之前用的是 `server\.venv`，那个环境随 `server` 目录一起废弃，请按上面的命令在仓库根目录重建。
 
 `.env` 只用于本地运行，不要提交到 GitHub。接入真实模型时填写 `OPENAI_API_KEY`；使用 `LLM_PROVIDER=fake` 时可以保持为空。
 
@@ -83,22 +81,22 @@ pnpm lint
 也可以按技术栈分别检查：
 
 ~~~bash
-cd server
 pytest
-ruff check .
-mypy .
+ruff check apps packages tests
+mypy apps
 
-cd ../apps/web
+cd apps/web
 pnpm test
 pnpm lint
 ~~~
 
-后端接口测试使用 pytest 和 httpx；前端组件测试使用 Vitest，关键用户流程使用 Playwright。新增功能时，先补对应模块的单元测试或接口测试，再提交 PR。
+后端接口测试使用 pytest 和 httpx；前端组件测试使用 Vitest，关键用户流程的 Playwright 测试在对应功能开始时补上。新增功能时，先补对应模块的单元测试或接口测试，再提交 PR。
 
 ## 文档入口
 
 - `docs/total-design.md`：产品形态、为什么需要它和完整功能清单
-- `docs/architecture.md`：分层与目录归属、模块边界、依赖方向和跨模块联动规则
+- `docs/architecture.md`：目录归属、模块边界、依赖方向、恢复机制和 RAG 流程
+- `docs/mvp.md`：第一版必须跑通的功能边界
 - `docs/modules/users.md`：账户模块详细设计
 - `docs/modules/documents.md`：文档与知识组织模块详细设计
 - `docs/modules/agent.md`：Agent、RAG 与运行控制详细设计
@@ -114,13 +112,19 @@ yoyo-knowledge-base/
 ├── README.md
 ├── TECH_STACK.md
 ├── AGENTS.md
+├── LICENSE
+├── package.json
+├── pnpm-workspace.yaml
+├── pnpm-lock.yaml
+├── pyproject.toml
 ├── docker-compose.yml   # 本地依赖服务编排
 ├── .env.example
 ├── .github/             # Issue、PR 和 CI 配置
 ├── apps/web/            # React Web 应用
 ├── packages/            # 前端无头业务、UI 和页面组合包
-├── server/              # FastAPI 应用、领域模块和数据库迁移
-├── tests/               # 后端测试
+├── apps/api/            # FastAPI 启动、HTTP 路由和跨模块用例装配
+├── packages/backend/    # Python 领域包、clients 和 infra
+├── tests/               # 与 apps、packages 同级的测试
 ├── data/                # 运行时数据
 ├── docs/                # 产品、架构和模块设计文档
 ├── scripts/             # 一次性开发脚本
