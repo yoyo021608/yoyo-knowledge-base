@@ -1,6 +1,8 @@
 packages:
-  - "apps/*"
-  - "packages/*"
+  - "apps/web"
+  - "packages/core"
+  - "packages/ui"
+  - "packages/views"
 
 # 允许 esbuild 执行安装脚本（pnpm 10 起默认禁止依赖运行构建脚本）
 onlyBuiltDependencies:

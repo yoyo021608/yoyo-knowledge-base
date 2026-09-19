@@ -7,7 +7,7 @@
 | 层次 | 选择 | 用途 |
 | --- | --- | --- |
 | 运行环境 | Node.js 22.13+ | 前端工具链和 Monorepo 脚本 |
-| 包管理 | pnpm 11+ | Workspace 依赖管理 |
+| 包管理 | pnpm 11.26.0 | Workspace 依赖管理 |
 | 后端运行环境 | Python 3.12+ | FastAPI 服务和后台任务 |
 | 主数据库 | PostgreSQL 16 | 用户、文档、版本、会话和问答数据 |
 | 缓存与任务 | Redis 7 | 缓存、短期状态和索引刷新任务 |
@@ -19,11 +19,14 @@
 - TypeScript：约束页面、业务状态和 API 数据结构。
 - Vite：开发服务器和前端构建工具。
 - React Router：前端路由和页面导航。
+- Vitest：前端单元测试和组件测试。
+
+当前仓库只安装到上面这些。以下选型在对应功能开始时引入，尚未落地：
+
 - TanStack Query：服务端数据请求、缓存和失效刷新。
 - Zustand：保存适合放在客户端的轻量交互状态。
 - Tailwind CSS：基础样式体系。
 - shadcn/ui：可组合的通用 UI 组件，不承载具体业务规则。
-- Vitest：前端单元测试和组件测试。
 - Playwright：注册、录入、问答等关键用户流程测试。
 - ESLint + Prettier：前端静态检查和格式化。
 
@@ -49,7 +52,7 @@
 - Black：Python 代码格式化。
 - mypy：Python 类型检查。
 
-后端按领域拆包：`api` 只负责 HTTP 边界，`users`、`documents`、`agent`、`sessions` 负责各自业务，`infra` 提供基础设施。不要建立一个承载所有业务的通用 `services` 包。
+后端按领域拆包：`apps/api` 负责启动、HTTP 装配和跨模块用例协调，`packages/backend/users`、`documents`、`agent`、`sessions` 负责各自业务，`clients` 只对接外部 SDK 或服务，`infra` 提供数据库、缓存、文件和任务基础设施。跨模块协调只组合 controller/Port，不拥有领域数据，也不能变成通用 `services` 包；同层模块不能互相深入调用。
 
 ## 数据与检索
 
@@ -64,12 +67,12 @@
 
 - `LLM_PROVIDER=fake`：本地开发和自动化测试的默认模式。
 - `LLM_PROVIDER=openai` 或其他 OpenAI 兼容服务：接入真实模型时使用。
-- OpenAI 官方 SDK 或兼容 SDK：模型调用直接在 Agent 运行过程中完成，不再包装多层通用 Provider。
+- OpenAI 官方 SDK 或兼容 SDK：由 `packages/backend/clients` 直接对接，Agent 通过明确的依赖使用，不再包装多层通用 Provider。
 - Chat Model：负责问题改写、回答生成和必要的内容处理。
 - Embedding Model：负责文档切分后的向量生成。
-- RAG：文档检索、上下文组装、回答生成和来源引用组成完整流程。
+- RAG：Agent 负责问题改写、检索编排、证据判断、上下文组装和回答引用；documents 负责知识切分、索引、召回和结果融合。
 
-基础设施模块只读取并校验模型配置；Agent 直接使用 SDK 调用模型，不直接访问文档数据库。
+基础设施模块只读取并校验模型配置；外部 SDK 连接归 `clients`，Agent 不直接访问文档数据库或向量库。
 
 ## 工程化与部署
 
@@ -81,8 +84,8 @@
 ## 不采用的方案
 
 - 不采用纯 HTML + 零散脚本作为正式前端。
-- 不使用 Go 风格的 `cmd/server` 目录；后端按 FastAPI 的 `server/app` 组织。
+- 不使用混合启动与业务的 `server` 目录；FastAPI 启动放在 `apps/api`，后端领域逻辑放在 `packages/backend`。
 - 不把所有业务塞进 `api` 或通用 `utils`。
-- 不建立通用 `server/app/ai` 或过度抽象的模型 Provider 层。
-- 不只做向量检索；必须保留结构化数据、关键词检索和来源引用。
+- 不建立通用 `apps/api/ai` 或过度抽象的模型 Provider 层。
+- 不只做向量检索；必须保留结构化数据、关键词检索、重排、证据门槛和来源引用。
 - 不把 Redis 或向量索引当作核心业务数据的唯一来源。

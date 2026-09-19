@@ -1,13 +1,20 @@
 [project]
-name = "yoyo-knowledge-base-server"
+name = "yoyo-knowledge-base"
 version = "0.1.0"
-description = "yoyo-knowledge-base 后端服务"
+description = "yoyo-knowledge-base Python application"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
+    "sqlalchemy>=2.0",
+    "alembic>=1.14",
+    "psycopg[binary]>=3.2",
+    "redis>=5.2",
+    "pwdlib[argon2]>=0.2",
+    "pyjwt>=2.10",
+    "openai>=1.59",
 ]
 
 [project.optional-dependencies]
@@ -26,10 +33,11 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["app*"]
+include = ["apps*", "packages.backend*"]
+namespaces = true
 
 [tool.pytest.ini_options]
-testpaths = ["../tests"]
+testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
 
