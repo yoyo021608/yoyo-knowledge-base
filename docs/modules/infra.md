@@ -2,20 +2,20 @@
 
 ## 功能职责
 
-基础设施模块负责为业务模块提供稳定的数据库、缓存、文件、后台任务和外部服务连接能力，不承载个人知识库的业务规则。
+基础设施模块负责为业务模块提供稳定的数据库、缓存、文件和后台任务能力，不承载个人知识库的业务规则。同时提供模型与 Embedding 服务的连接和轻量适配。
 
 - 提供 PostgreSQL 连接、事务和基础资源生命周期。
 - 提供 Redis 缓存和可重试后台任务。
 - 保存和读取上传文件及来源快照。
-- 读取并校验模型服务连接配置。
+- 解析并校验装配方传入的配置，创建模型与 Embedding 连接。
 - 统一处理连接超时、资源释放和基础错误。
 
 ## 边界
 
-- 只提供资源访问和外部连接，不判断任何业务动作是否应该发生。
-- 数据库入口不包装成承载所有业务规则的万能 Store。
-- 缓存和任务系统不能成为核心数据唯一来源，重要状态必须能从核心存储恢复。
-- 只提供模型服务的连接配置，不参与提示词、模型选择和调用编排。
+- 只提供基础资源访问，不判断任何业务动作是否应该发生。
+- 数据库入口提供连接与事务，业务查询由所属领域维护。
+- 缓存和任务系统不能成为核心数据唯一来源；任务允许重复投递，领域处理按业务键幂等，持久化待处理状态用于补投。
+- 只校验装配方传入的模型服务配置，不参与提示词、模型选择和调用编排；模型调用仅进行参数和结果适配，业务策略由调用方负责。
 - 文件存储只保存字节内容，业务对象的元数据由所属领域自己保存。
 
 ## 内部拆分
@@ -97,7 +97,7 @@ type FileStorage interface {
 
 ### 模型配置（Model Configuration）
 
-模型配置负责从运行环境读取并校验模型服务调用所需的配置；不负责设计提示词、检索编排、回答生成或保存回答。
+模型配置负责接收装配方读取的配置并校验模型服务调用所需的参数；不负责设计提示词、检索编排、回答生成或保存回答。
 
 ~~~go
 type ModelConfig struct {
@@ -108,8 +108,15 @@ type ModelConfig struct {
     EmbeddingModel string
 }
 
-func LoadModelConfig() (ModelConfig, error) // 从运行环境读取模型配置并返回配置结果。
-func ValidateModelConfig(config ModelConfig) error // 检查当前模型配置是否满足运行要求。
+type ModelConnection struct {
+    Provider string
+    ChatModel string
+    EmbeddingModel string
+}
+
+func LoadModelConfig(values map[string]string) (ModelConfig, error) // 接收装配方传入的配置值并返回配置结果。
+func ValidateModelConfig(config ModelConfig) error // 检查模型配置是否满足运行要求。
+func CreateModelConnection(config ModelConfig) (ModelConnection, error) // 创建 SDK 连接并适配参数与结果，不处理问答策略。
 ~~~
 
 ## 流程
@@ -121,6 +128,7 @@ func ValidateModelConfig(config ModelConfig) error // 检查当前模型配置�
 OpenDatabase(...)
 LoadModelConfig(...)
 ValidateModelConfig(...)
+CreateModelConnection(...)
 
 // 保存业务数据
 BeginTransaction(...)

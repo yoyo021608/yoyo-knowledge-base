@@ -18,14 +18,14 @@
 ## 边界
 
 - 文档、专题、标签、收藏、归档、关联、来源、版本和索引状态归 documents 所有。
-- 只接收当前用户身份，不自行判断身份来源。
-- 文档能力只通过检索对外提供，不参与调用方如何使用检索结果。
+- 接收认证入口提供的可信身份，校验文档、专题、标签、关联对象及导出范围的归属，不允许模型或请求正文覆盖身份。
+- 文档管理通过本模块入口对外提供；Agent 只使用 DocumentSearchPort 检索和复核证据，不访问文档内部数据。
 - 只保存文件内容和来源快照，文档与专题的业务关系不随文件一起存放。
 - 编辑不会覆盖历史版本；最新版本用于检索，旧版本用于追溯和引用回放。
 - 归档改变文档的可见和检索状态，但不删除历史版本和已保存的引用快照。
-- 删除文档会清除正文和索引，但已经产生的回答引用仍能打开当时的来源快照。
+- 删除文档清除正文、历史版本及索引；已产生的回答仅保留引用摘录、标题、原网址和版本标识，显示“原文已删除”，正文不可访问。
 - 删除专题只解除归类，删除标签只解除标记，都不删除文档本身。
-- 批量录入中单条失败不阻塞同批次其他条目，失败条目可以单独重试。
+- 批量录入中单条失败不阻塞其他条目；按任务与条目序号幂等，录入成功但索引失败只重试索引，不重复创建文档。
 
 ## 内部拆分
 
@@ -57,12 +57,12 @@ type SingleImporter interface {
 
 ### 批量录入（Batch Import）
 
-批量录入负责接收多条资料、记录批量任务和逐条处理结果；不负责把批量逻辑扩散到其他领域。
+批量录入负责接收多条资料、记录批量任务和逐条处理结果；处理范围限于文档录入，不执行问答或会话操作。
 
 ~~~go
 type BatchImportInput struct {
     UserID string
-    Items []SingleImportInput
+    Items []SingleImportInput // 条目身份统一使用批次身份，不接受不同用户。
 }
 
 type ImportJob struct {
@@ -114,7 +114,7 @@ type DocumentVersion struct {
     Version int
     TitleSnapshot string
     ContentSnapshot string
-    SourceSnapshot string
+    SourceSnapshot SourceSnapshot
     CreatedAt time.Time
 }
 
@@ -139,7 +139,8 @@ type DocumentFilter struct {
 type DocumentEditor interface {
     Get(documentID string, userID string) (Document, error) // 获取当前用户可访问的文档。
     List(userID string, filter DocumentFilter) ([]Document, error) // 展示当前用户的文档列表。
-    Update(documentID string, userID string, input DocumentUpdateInput) (DocumentVersion, error) // 编辑文档并创建新版本。
+    Update(documentID string, userID string, input DocumentUpdateInput) (DocumentVersion, error) // 编辑文档，原子保存新版本与待索引状态并触发刷新。
+    GetVersion(documentID string, versionID string, userID string) (DocumentVersion, error) // 校验归属后读取引用对应版本，文档已删除则返回原文已删除。
     ListVersions(documentID string, userID string) ([]DocumentVersion, error) // 查看文档历史版本。
     Archive(documentID string, userID string) error // 归档文档并更新可见状态。
     Restore(documentID string, userID string) error // 恢复已归档文档。
@@ -147,7 +148,7 @@ type DocumentEditor interface {
 }
 ~~~
 
-编辑、改写或重新导入都会生成新的 DocumentVersion，旧版本保留；回答引用始终指向当时的那一版。
+编辑、改写或重新导入都会生成新的 DocumentVersion，旧版本保留；回答引用绑定生成回答时使用的文档版本。
 
 ### 知识组织（Knowledge Organization）
 
@@ -208,17 +209,24 @@ type KnowledgeOrganization interface {
 
 ### 来源管理（Source Management）
 
-来源管理负责记录资料来源和来源快照；不负责自动替代用户修改文档业务数据。
+来源管理负责记录资料来源和来源快照；文档正文与组织关系由对应的编辑和组织功能维护。
+
+来源正文与 DocumentVersion 一同保留，不随每条 SearchHit 返回；Agent 仅接收选中片段、标题、网址和版本标识。
 
 ~~~go
 type SourceInput struct {
+    UserID string
     DocumentID string
+    VersionID string
+    Content string
     SourceType string
     SourceURL string
     Title string
 }
 
 type SourceSnapshot struct {
+    VersionID string
+    Content string // 导入时捕获的来源正文，随文档版本保留和删除。
     SourceType string
     SourceURL string
     Title string
@@ -226,7 +234,7 @@ type SourceSnapshot struct {
 }
 
 type SourceManager interface {
-    CaptureSource(input SourceInput) (SourceSnapshot, error) // 保存文档来源快照。
+    CaptureSource(input SourceInput) (SourceSnapshot, error) // 仅由本模块录入或编辑调用，随对应版本幂等保存来源快照。
     GetSource(documentID string, userID string) (SourceSnapshot, error) // 查看文档来源信息。
 }
 ~~~
@@ -250,12 +258,12 @@ type RefreshStatus struct {
 }
 
 type DocumentIndexPort interface {
-    Refresh(input RefreshRequest) error // 对指定文档版本执行切分和索引刷新。
+    Refresh(input RefreshRequest) error // 内部任务对指定版本幂等切分和索引，旧任务不得覆盖当前版本。
     GetRefreshStatus(documentID string, userID string) (RefreshStatus, error) // 查询文档索引刷新状态。
 }
 ~~~
 
-刷新按最新版本执行：先写入 queued 状态，异步执行后更新为 processing、ready 或 failed，失败可重试；刷新状态以持久化数据为准。
+每个任务绑定 DocumentID + VersionID，按该键幂等执行；只有任务版本仍为当前版本时才能发布索引和更新当前状态，旧任务不得覆盖新版本。版本写入与 queued 状态同事务保存，投递失败由定期扫描补投；新版本未 ready 时不回退旧索引。删除、归档立即影响查询过滤，不依赖异步清理完成。
 
 ### 检索（Search）
 
@@ -276,12 +284,14 @@ type SearchHit struct {
     VersionID string
     Title string
     ContentSnippet string
-    SourceSnapshot string
+    ChunkID string
+    SourceURL string
     Score float64
 }
 
 type DocumentSearchPort interface {
-    Search(query SearchQuery) ([]SearchHit, error) // 按当前用户范围执行知识检索。
+    Search(query SearchQuery) ([]SearchHit, error) // 过滤归属、归档与当前 ready 版本后召回、去重并融合候选。
+    ValidateSources(userID string, hits []SearchHit) ([]SearchHit, error) // 从持久化内容复核片段及当前 ready 版本，排除删除、归档和过期候选，不信任传入正文。
 }
 ~~~
 
@@ -312,16 +322,13 @@ type Exporter interface {
 用户把资料录进知识库，之后查看、编辑、整理并检索这些资料。
 
 ~~~text
-// 单个录入
+// 单个录入，Import 内部保存版本与来源并触发索引
 SingleImporter.Import(...)
-SourceManager.CaptureSource(...)
 DocumentEditor.Get(...)
-DocumentIndexPort.Refresh(...)
 
 // 批量录入
 BatchImporter.CreateJob(...)
 BatchImporter.GetJob(...)
-DocumentIndexPort.Refresh(...)
 
 // 查看批量结果和重试失败条目
 BatchImporter.GetJob(...)
@@ -331,6 +338,9 @@ BatchImporter.RetryFailed(...)
 DocumentEditor.List(...)
 DocumentEditor.Get(...)
 SourceManager.GetSource(...)
+
+// 从历史引用查看具体版本
+DocumentEditor.GetVersion(...)
 
 // 整理专题和标签
 KnowledgeOrganization.CreateTopic(...)
@@ -345,7 +355,6 @@ KnowledgeOrganization.DeleteTag(...)
 // 编辑或改写文档
 DocumentEditor.Update(...)
 DocumentEditor.ListVersions(...)
-DocumentIndexPort.Refresh(...)
 
 // 收藏、打标、归档和关联
 KnowledgeOrganization.SetFavorite(...)

@@ -17,8 +17,9 @@
 - 只负责账户身份、密码凭证和登录会话，不接管其他领域的业务判断。
 - 身份只回答“请求来自谁”，不回答“这个人能操作哪些资源”。
 - 忘记密码只负责生成、校验和失效一次性重置凭证，不负责邮件或短信服务本身。
-- 注销只撤销当前登录凭证，用户已经保存的数据不受影响。
-- 密码只能保存不可逆摘要，任何接口都不能返回原始密码或密码摘要。
+- 注销只撤销当前登录凭证，用户已经保存的数据不受影响；凭证携带登录会话标识，身份解析同时检查持久化会话是否有效。
+- 修改或重置密码后撤销该用户全部登录会话；重置凭证过期失效，只能原子消费一次，找回请求对存在和不存在的邮箱返回相同提示。
+- 密码只能保存密码摘要，所有公开接口都不能返回原始密码或密码摘要，凭证记录仅限模块内部读取。
 
 ## 内部拆分
 
@@ -34,14 +35,19 @@ type User struct {
     CreatedAt time.Time
 }
 
+type UserProfile struct {
+    ID string
+    Email string
+}
+
 type RegisterInput struct {
     Email string
     Password string
 }
 
 type Registration interface {
-    Register(input RegisterInput) (User, error) // 校验注册信息并创建用户。
-    FindByEmail(email string) (User, error) // 根据邮箱查找用户，供注册和登录检查使用。
+    Register(input RegisterInput) (UserProfile, error) // 校验注册信息并创建用户。
+    FindByEmail(email string) (User, error) // 仅模块内部查找凭证记录，不作为公开响应。
 }
 ~~~
 
@@ -55,13 +61,20 @@ type LoginInput struct {
     Password string
 }
 
+type LoginRecord struct {
+    ID string
+    UserID string
+    ExpiresAt time.Time
+    RevokedAt *time.Time
+}
+
 type AuthToken struct {
     AccessToken string
     ExpiresAt time.Time
 }
 
 type LoginSession interface {
-    Login(input LoginInput) (AuthToken, User, error) // 校验密码并签发登录凭证。
+    Login(input LoginInput) (AuthToken, UserProfile, error) // 校验密码并签发登录凭证。
     Logout(accessToken string) error // 撤销当前登录凭证。
 }
 ~~~
@@ -117,8 +130,7 @@ func RequireIdentity(accessToken string) (IdentityContext, error) // 校验请�
 Registration.Register(...)
 LoginSession.Login(...)
 
-// 登录
-Registration.FindByEmail(...)
+// 登录，凭证查找由登录能力内部完成
 LoginSession.Login(...)
 
 // 访问业务接口

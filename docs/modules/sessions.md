@@ -14,9 +14,12 @@
 ## 边界
 
 - 会话数据以 Session 和 Message 为主体；回答引用挂在某条回答消息上，不单独存在。
-- 会话模块只保存对话数据，不参与回答是怎么产生的。
+- 会话模块只保存对话数据，回答生成由 Agent 负责。
 - 过程事件不落入会话数据；取消、继续和重连不在这里处理。
-- 引用只保存回答与来源版本的关联，不复制来源正文和索引内容。
+- 引用保留版本标识、摘录、标题和原网址，不复制完整正文或索引；原文删除后仍可看摘录，但提示原文已删除。
+- 一个会话同时只接受一个活动 Run；领取失败返回忙碌，不额外保存用户问题，不排队。
+- 身份由认证入口传入，本模块检查会话、消息归属；不信任请求正文中的用户标识。
+- 删除会话先标记 deleting，拒绝新提问和迟到结果，再由协调方清理 Agent 运行，最后删除消息与引用；中断后可重复完成清理。
 - 会话名称由用户自行命名，本模块不做命名推断。
 
 ## 内部拆分
@@ -30,6 +33,8 @@ type Session struct {
     ID string
     UserID string
     Name string
+    ActiveRunID *string // 只保存关联，不拥有运行状态。
+    Status string // active、deleting。
     CreatedAt time.Time
     UpdatedAt time.Time
 }
@@ -50,7 +55,11 @@ type SessionManagement interface {
     List(userID string) ([]Session, error) // 查询当前用户的会话列表。
     Get(sessionID string, userID string) (Session, error) // 获取当前用户可访问的会话。
     Rename(input RenameSessionInput) (Session, error) // 修改当前用户会话名称。
-    Delete(sessionID string, userID string) error // 删除会话及其消息。
+    TryClaimRun(sessionID string, userID string, runID string) error // 仅活动会话且关联为空时原子领取，同一 Run 重试成功。
+    ReleaseRun(sessionID string, userID string, runID string) error // 仅释放匹配的关联，重复释放无副作用。
+    BeginDelete(sessionID string, userID string) error // 标记删除中，阻止新领取和消息写入。
+    ListDeleting(limit int) ([]Session, error) // 内部恢复任务扫描待清理会话，即使运行记录已清除也能继续删除。
+    Delete(sessionID string, userID string) error // 运行清理完成后幂等删除会话、消息及引用。
 }
 ~~~
 
@@ -62,20 +71,22 @@ type SessionManagement interface {
 type Message struct {
     ID string
     SessionID string
+    RunID string // 与 Role 组成会话内唯一键，重试不重复插入。
     Role string // user、assistant。
     Content string
     CreatedAt time.Time
 }
 
 type MessageHistory interface {
-    Append(message Message) error // 保存一条会话消息。
+    AppendUser(userID string, message Message) (Message, error) // 核对活动 Run 后幂等保存用户消息，相同键不同内容拒绝。
+    SaveAnswer(userID string, message Message, citations []Citation) (Message, error) // 同一事务保存回答及引用，按 Run 幂等且相同键不同结果拒绝；先检查已存结果，新写入核对活动关联，删除中的会话拒绝。
     List(sessionID string, userID string) ([]Message, error) // 按会话顺序读取历史消息。
 }
 ~~~
 
 ### 引用回放（Citation Replay）
 
-引用回放负责保存回答引用及来源快照，让用户可以从历史回答回到具体文档版本；不负责重新检索和生成引用。
+引用回放负责读取随回答保存的引用，原文存在时可定位具体版本，原文删除后展示保留的摘录与来源信息；写入统一由消息历史的 SaveAnswer 完成，不重新检索和生成引用。
 
 ~~~go
 type Citation struct {
@@ -83,12 +94,13 @@ type Citation struct {
     MessageID string
     DocumentID string
     DocumentVersionID string
-    SourceSnapshot string
-    Quote string
+    ChunkID string
+    TitleSnapshot string
+    SourceURL string
+    Quote string // 自包含摘录；版本标识不建立导致删除受阻或引用级联删除的外键。
 }
 
 type CitationReplay interface {
-    Attach(messageID string, citations []Citation) error // 保存回答与来源之间的引用关系。
     List(messageID string, userID string) ([]Citation, error) // 读取回答的引用和来源快照。
 }
 ~~~
@@ -101,17 +113,21 @@ type CitationReplay interface {
 // 用户创建会话
 SessionManagement.Create(...)
 
-// 保存用户问题
-MessageHistory.Append(...)
+// 调用方创建 Run 后领取会话并保存问题
+SessionManagement.TryClaimRun(...)
+MessageHistory.AppendUser(...)
 
 // 系统回答完成后保存消息和引用
-MessageHistory.Append(...)
-CitationReplay.Attach(...)
+MessageHistory.SaveAnswer(...)
+
+// 调用方完成 Run 后释放关联
+SessionManagement.ReleaseRun(...)
 
 // 用户修改会话名称
 SessionManagement.Rename(...)
 
-// 用户删除会话
+// 用户删除会话，调用方在两步之间完成运行清理
+SessionManagement.BeginDelete(...)
 SessionManagement.Delete(...)
 
 // 用户查看历史
