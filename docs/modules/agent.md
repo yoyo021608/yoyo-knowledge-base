@@ -7,7 +7,7 @@ Agent 编排模块负责把用户问题组织成一轮完整的知识调用过�
 - 组装当前问题、会话上下文和检索结果。
 - 对问题做改写、检索编排和上下文组装。
 - 在需要时调用知识检索能力获取知识片段。
-- 一次检索不够时，自己换一组查询再查一次，不把重问推给用户。
+- 检索证据不足时自动改写查询，并在预算内补充检索。
 - 组织上下文并生成回答，返回带来源引用的结果。
 - 判断检索证据是否足够，并规范化回答引用。
 - 管理 Run 状态、过程事件、取消、继续和断线重连恢复。
@@ -15,7 +15,7 @@ Agent 编排模块负责把用户问题组织成一轮完整的知识调用过�
 ## 边界
 
 - Agent 负责“如何完成一次回答”的编排，不拥有知识内容本身。
-- 证据判断只决定证据够不够、要不要再查；知识内容的切分、版本和索引不由 Agent 维护。
+- 证据判断负责评估充分性并确定是否补充检索；知识内容的切分、版本和索引不由 Agent 维护。
 - Agent 不直接读取知识内容和索引数据；需要知识时通过检索 Port 或工具适配层调用。
 - 工具只定义参数、权限和结果适配，不实现知识内容的加工和检索。
 - Agent 只产生回答结果和运行事件，对话记录的保存由调用方负责。
@@ -26,13 +26,14 @@ Agent 编排模块负责把用户问题组织成一轮完整的知识调用过�
 
 ### 证据判断（Evidence Assessment）
 
-证据判断负责判断检索结果是否足以支持回答，并在不足时给出下一次要查什么；不负责执行检索、组装上下文和生成回答。
+证据判断负责判断检索结果是否足以支持回答，并在证据不足时生成补充查询；不负责执行检索、组装上下文和生成回答。
 
 ~~~go
 type EvidenceDecision struct {
     Sufficient bool
     Reason string
     HitCount int
+    MissingInformation []string
 }
 
 type NextRetrieval struct {
@@ -41,10 +42,12 @@ type NextRetrieval struct {
 }
 
 type RAGPipeline interface {
-    AssessEvidence(hits []SearchHitContext) (EvidenceDecision, error) // 判断当前检索结果是否足以支持回答。
-    PlanNextRetrieval(decision EvidenceDecision) (NextRetrieval, error) // 证据不足时给出下一次查询。
+    AssessEvidence(question string, hits []SearchHitContext) (EvidenceDecision, error) // 判断当前检索结果是否足以支持回答。
+    PlanNextRetrieval(question string, previousQueries []string, decision EvidenceDecision, attempt int, maxAttempts int) (NextRetrieval, error) // 证据不足时给出下一次查询。
 }
 ~~~
+
+证据判断检查材料是否覆盖当前问题，不能只看命中数量或相似度；默认最多补查 1 次，总检索时间上限 30 秒，均可配置；成功检索后仍缺材料才返回证据不足，检索超时或服务不可用返回可重试故障，不声称知识库没有证据。
 
 ### 上下文组装（Context Assembly）
 
@@ -61,25 +64,39 @@ type SearchHitContext struct {
     VersionID string
     Title string
     ContentSnippet string
+    ChunkID string
+    SourceURL string
     Score float64
+}
+
+type ContextBudget struct {
+    ModelWindow int
+    ReservedOutputTokens int
+    SafetyMargin int
+    HistoryBudget int
+    EvidenceBudget int
 }
 
 type ContextInput struct {
     Question string
     History []MessageContext
     SearchHits []SearchHitContext
+    Budget ContextBudget
 }
 
 type ContextPacket struct {
     SystemPrompt string
     Messages []MessageContext
     Sources []SearchHitContext
+    InputTokens int
 }
 
 type ContextAssembler interface {
     Build(input ContextInput) (ContextPacket, error) // 生成本轮模型调用所需的上下文。
 }
 ~~~
+
+输入上限为模型窗口减去输出预留和安全余量；先保留系统指令与当前问题，再选近期历史和去重、重排后的证据。历史与证据分别限额，最终按模型 tokenizer 复核；固定内容超限则返回输入过长，不静默截断问题。改写和证据判断的模型调用同样受预算约束；摘要仅用于压缩历史，不覆盖原始消息，检索内容作为不可信资料而非系统指令。
 
 ### 问题改写（Question Rewrite）
 
@@ -103,7 +120,7 @@ type QuestionRewriter interface {
 
 ### 检索编排（Retrieval Orchestration）
 
-检索编排负责把要查的问题变成检索参数、执行召回并合并结果；不判断结果够不够，不保存文档，也不复制 documents 的检索实现。
+检索编排负责制定查询计划，通过注入的 DocumentSearchPort 获取候选，按当前问题重排并选择证据；不实现全文、向量召回及候选融合，不保存文档。
 
 ~~~go
 type RetrievalPlan struct {
@@ -114,7 +131,7 @@ type RetrievalPlan struct {
 
 type RetrievalOrchestrator interface {
     PlanRetrieval(question string, userID string) (RetrievalPlan, error) // 把要查的问题整理成本轮检索参数。
-    Retrieve(plan RetrievalPlan, userID string) ([]SearchHitContext, error) // 按检索计划召回并合并结果。
+    Retrieve(plan RetrievalPlan, userID string) ([]SearchHitContext, error) // 调用检索契约并转换、重排候选，不复制召回算法。
 }
 ~~~
 
@@ -140,26 +157,13 @@ type ToolResult struct {
     ErrorMessage string
 }
 
-type DocumentSearchInput struct {
-    UserID string
-    Query string
-    Mode string
-    TopicID string
-    Tag string
-    Limit int
-}
-
-type ToolSearchPort interface {
-    Search(input DocumentSearchInput) ([]SearchHitContext, error) // 通过检索 Port 获取本轮知识上下文。
-}
-
 type ToolPorts struct {
-    DocumentSearch ToolSearchPort
+    DocumentSearch DocumentSearchPort // 复用文档模块定义的唯一检索契约。
 }
 
 type ToolAdapter interface {
     Definitions() []ToolDefinition // 返回本次 Agent 可以使用的工具定义。
-    Execute(call ToolCall, ports ToolPorts) (ToolResult, error) // 校验工具调用并通过 Port 执行。
+    Execute(userID string, call ToolCall, ports ToolPorts) (ToolResult, error) // 使用可信身份校验工具参数并调用检索契约，身份不可由模型覆盖。
 }
 ~~~
 
@@ -176,7 +180,9 @@ type AnswerDraft struct {
 type AnswerCitation struct {
     DocumentID string
     DocumentVersionID string
-    SourceSnapshot string
+    ChunkID string
+    TitleSnapshot string
+    SourceURL string
     Quote string
 }
 
@@ -187,7 +193,7 @@ type AnswerResult struct {
 }
 
 type AnswerGenerator interface {
-    Generate(context ContextPacket) (AnswerResult, error) // 使用上下文生成回答并选择引用。
+    Generate(context ContextPacket) (AnswerResult, error) // 生成回答，校验引用只来自实际入选证据且摘录能匹配该版本。
     GenerateInsufficientEvidence() AnswerResult // 返回知识库证据不足的结构化结果。
 }
 ~~~
@@ -200,7 +206,9 @@ type AnswerGenerator interface {
 type Run struct {
     ID string
     SessionID string
-    Status string // queued、running、paused、cancelled、completed、failed。
+    UserID string
+    RequestID string // 同一用户请求的幂等标识。
+    Status string // queued、running、paused、finalizing、cancelled、completed、failed。
     LastEventSeq int64
 }
 
@@ -213,15 +221,39 @@ type RunEvent struct {
     CreatedAt time.Time
 }
 
+type RunSnapshot struct {
+    RunID string
+    InputMessageID string
+    Input ContextInput // 固定本轮问题、历史与预算，不保存密钥。
+    Step string // rewrite、retrieve、generate、persist_answer。
+    Queries []string
+    SelectedSources []SearchHitContext
+    Result *AnswerResult
+    ChatModel string
+    Attempt int // 重新生成时递增，旧的部分输出标记为中断。
+    Revision int64 // 条件更新防止旧执行覆盖新快照。
+}
+
 type RunControl interface {
-    Start(sessionID string, question string) (Run, error) // 创建并启动一次问答运行。
-    Cancel(runID string) error // 请求取消正在运行的任务。
-    Continue(runID string) (Run, error) // 继续可恢复的运行。
-    ReadEvents(runID string, afterSeq int64) ([]RunEvent, error) // 按序号读取断线后缺失的过程事件。
+    CreateRun(sessionID string, userID string, requestID string, input ContextInput) (Run, error) // 按用户、会话及 requestID 幂等创建 Run；同键不同问题拒绝，重试复用原历史快照。
+    ExecuteRun(runID string, userID string, inputMessageID string) error // 协调方完成会话领取和消息保存后启动运行。
+    SaveSnapshot(snapshot RunSnapshot, expectedRevision int64) error // 内部执行者条件保存快照及同一步骤事件。
+    LoadSnapshot(runID string, userID string) (RunSnapshot, error) // 校验归属后读取恢复所需数据。
+    Cancel(runID string, userID string) error // 校验归属并取消，阻止后续执行与结果提交。
+    PauseInterrupted(runID string) error // 仅内部恢复任务将确认无执行者的中断运行转为 paused。
+    Continue(runID string, userID string) (Run, error) // 仅继续可恢复的暂停运行，不重启终态运行。
+    BeginFinalize(runID string, userID string) error // 有完整结果时条件进入 finalizing，与取消互斥；此后取消返回已在保存。
+    Complete(runID string, userID string) error // 最终回答保存成功后幂等完成运行。
+    Fail(runID string, userID string, reason string) error // 标记不可恢复或领取失败的运行。
+    ReadEvents(runID string, userID string, afterSeq int64, limit int) ([]RunEvent, error) // 校验归属后有界回放过程事件。
+    ListRecoverable(limit int) ([]Run, error) // 内部恢复任务扫描非终态和待协调的运行。
+    PurgeSessionRuns(sessionID string, userID string) error // 会话停止接收提问后取消并清理运行，禁止迟到写入。
 }
 ~~~
 
-过程事件、取消、继续和重连恢复统一属于 Agent 的运行控制。过程事件先持久化、再作为通知推送出去；断线后按 `event_seq` 回放，内存里的临时状态不作为事实来源。
+同一 Run 仅允许一个执行者；恢复复用已完成步骤，生成中断则重新生成并标记旧输出失效。快照与对应事件同事务保存，事件回放不触发执行。最终提交与取消互斥，回答持久化成功后才完成 Run；跨模块保存与清理由调用方协调。
+
+生成前复核证据版本与访问状态，失效证据触发预算内重检索；最终提交固定完整结果，不重复生成。来源复核与删除独立提交，删除后的引用按已保存摘录回放。
 
 ## 流程
 
@@ -229,22 +261,34 @@ type RunControl interface {
 
 ~~~text
 // 用户提问
-RunControl.Start(...)
+RunControl.CreateRun(...)
+RunControl.ExecuteRun(...)
 QuestionRewriter.Rewrite(...)
 RetrievalOrchestrator.PlanRetrieval(...)
 RetrievalOrchestrator.Retrieve(...)
 RAGPipeline.AssessEvidence(...)
 ContextAssembler.Build(...)
 AnswerGenerator.Generate(...)
+RunControl.SaveSnapshot(...)
 
-// 一次没查够时再查一次
+// 调用方领取最终提交权
+DocumentSearchPort.ValidateSources(...)
+RunControl.BeginFinalize(...)
+
+// 调用方保存回答成功后完成运行
+RunControl.Complete(...)
+
+// 证据不足时补充检索
 RAGPipeline.PlanNextRetrieval(...)
 RetrievalOrchestrator.Retrieve(...)
+RAGPipeline.AssessEvidence(...)
 
 // 用户取消
 RunControl.Cancel(...)
 
 // 用户继续
+RunControl.LoadSnapshot(...)
+DocumentSearchPort.ValidateSources(...)
 RunControl.Continue(...)
 
 // 用户断线后重连
