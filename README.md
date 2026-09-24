@@ -29,7 +29,7 @@ pnpm install
 pnpm dev
 ~~~
 
-`docker-compose.yml` 只编排 PostgreSQL、Redis 这类本地依赖服务。`apps/api` 负责 FastAPI 启动和装配，Python 业务包归 `packages/backend`；前端由 `apps/web` 启动。停止依赖服务用 `docker compose down`。
+`docker-compose.yml` 只编排 PostgreSQL、Redis 这类本地依赖服务。`server` 负责 FastAPI 启动、接口装配和 Python 领域模块；前端由 `apps/web` 启动。停止依赖服务用 `docker compose down`。
 
 也可以分开启动：
 
@@ -83,7 +83,7 @@ pnpm lint
 ~~~bash
 pytest
 ruff check apps packages tests
-mypy apps packages/backend
+mypy server
 
 cd apps/web
 pnpm test
@@ -97,6 +97,7 @@ pnpm lint
 - `docs/total-design.md`：产品形态、为什么需要它和完整功能清单
 - `docs/architecture.md`：目录归属、模块边界、依赖方向、恢复机制和 RAG 流程
 - `docs/mvp.md`：MVP 功能边界与验收条件
+- `docs/flows/`：文档录入、文档更新、问答和 Run 恢复的数据流
 - `docs/modules/users.md`：账户模块详细设计
 - `docs/modules/documents.md`：文档与知识组织模块详细设计
 - `docs/modules/agent.md`：Agent、RAG 与运行控制详细设计
@@ -122,8 +123,7 @@ yoyo-knowledge-base/
 ├── .github/             # Issue、PR 和 CI 配置
 ├── apps/web/            # React Web 应用
 ├── packages/            # 前端无头业务、UI 和页面组合包
-├── apps/api/            # FastAPI 启动、配置和依赖装配
-├── packages/backend/    # controller 接入目录与五个职责模块
+├── server/              # FastAPI 启动、接口装配与五个后端职责模块
 ├── tests/               # 与 apps、packages 同级的测试
 ├── data/                # 运行时数据
 ├── docs/                # 产品、架构和模块设计文档

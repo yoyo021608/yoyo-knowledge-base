@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from apps.api.app.config import get_settings
-from packages.backend.controller.health import router as health_router
+from server.config import get_settings
+from server.controller.health import router as health_router
 
 
 def create_app() -> FastAPI:

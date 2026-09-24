@@ -1,0 +1,1 @@
+"""Document and retrieval domain."""
