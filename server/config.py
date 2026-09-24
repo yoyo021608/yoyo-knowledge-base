@@ -29,11 +29,12 @@ class Settings(BaseSettings):
 
     @property
     def cors_origin_list(self) -> list[str]:
-        return [
-            origin.strip()
-            for origin in self.cors_origins.split(",")
-            if origin.strip()
-        ]
+        origins: list[str] = []
+        for origin in self.cors_origins.split(","):
+            stripped = origin.strip()
+            if stripped:
+                origins.append(stripped)
+        return origins
 
 
 @lru_cache
