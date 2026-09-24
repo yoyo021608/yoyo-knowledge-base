@@ -14,9 +14,9 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e ".[dev]"
-      - run: ruff check apps packages tests
-      - run: black --check apps packages tests
-      - run: mypy apps packages/backend
+      - run: ruff check apps packages server tests
+      - run: black --check apps packages server tests
+      - run: mypy server
       - run: pytest
 
   frontend:

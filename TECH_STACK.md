@@ -52,7 +52,7 @@
 - Black：Python 代码格式化。
 - mypy：Python 类型检查。
 
-后端采用 users、documents、sessions、agent、infra 五个职责模块。packages/backend/controller 与模块同级，统一暴露 HTTP 接口并协调公开接口调用；apps/api 仅负责启动、配置和依赖装配。业务规则和数据访问留在所属模块，infra 提供技术资源和模型 SDK 连接，同层业务实现不直接互相引用。
+后端采用 users、documents、sessions、agent、infra 五个职责模块。`server/controller` 与模块同级，统一暴露 HTTP 接口并协调公开接口调用；`server/main.py` 负责启动、配置和依赖装配。业务规则和数据访问留在所属模块，infra 提供技术资源和模型 SDK 连接，同层业务实现不直接互相引用。
 
 ## 数据与检索
 
@@ -67,10 +67,10 @@
 
 - `LLM_PROVIDER=fake`：用于本地开发和自动化测试，设计要求同时替代生成与 Embedding，固定输入产生可复现结果，不用于证明真实检索质量。
 - `LLM_PROVIDER=openai` 或其他 OpenAI 兼容服务：接入真实模型时使用。
-- OpenAI 官方 SDK 或兼容 SDK：由 `packages/backend/infra` 直接对接，Agent 通过明确的依赖使用，不再包装多层通用 Provider。
+- OpenAI 官方 SDK 或兼容 SDK：由 `server/infra` 直接对接，Agent 通过明确的依赖使用，不再包装多层通用 Provider。
 - Chat Model：负责问题改写、回答生成和必要的内容处理。
 - Embedding Model：负责文档切分后的向量生成。
-- RAG：Agent 负责问题改写、检索编排、证据判断、上下文组装和回答引用；documents 负责知识切分、索引、召回和结果融合。
+- RAG：Agent 负责问题改写、检索编排、候选融合、重排、证据判断、上下文组装和回答引用；documents 负责知识切分、索引状态和基础候选查询。
 
 启动装配读取环境变量，基础设施模块只解析并校验传入的模型配置；外部 SDK 连接归 `infra`，Agent 不直接访问文档数据库或向量库。
 
@@ -84,8 +84,8 @@
 ## 不采用的方案
 
 - 不采用纯 HTML + 零散脚本作为正式前端。
-- 不使用混合启动与业务的 `server` 目录；FastAPI 启动放在 `apps/api`，后端领域逻辑放在 `packages/backend`。
+- Python 后端统一放在与 `packages` 同级的 `server`，由 `server/main.py` 启动；前端共享包仍放在 `packages`。
 - 不把所有业务塞进 `api` 或通用 `utils`。
-- 不建立通用 `apps/api/ai` 或过度抽象的模型 Provider 层。
+- 不建立通用 `server/ai` 或过度抽象的模型 Provider 层。
 - 不只做向量检索；必须保留结构化数据、关键词检索、重排、证据门槛和来源引用。
 - 不把 Redis 或向量索引当作核心业务数据的唯一来源。

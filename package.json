@@ -6,14 +6,14 @@
   "engines": { "node": ">=22.13" },
   "scripts": {
     "dev": "concurrently -n api,web -c blue,green \"pnpm dev:api\" \"pnpm dev:web\"",
-    "dev:api": "python -m uvicorn apps.api.app.main:app --reload --port 8000",
+    "dev:api": "python -m uvicorn server.main:app --reload --port 8000",
     "dev:web": "pnpm --filter @yoyo/web dev",
     "build:web": "pnpm --filter @yoyo/web build",
     "test": "pnpm test:api && pnpm test:web",
     "test:api": "python -m pytest",
     "test:web": "pnpm --filter @yoyo/web test",
     "lint": "pnpm lint:api && pnpm lint:web",
-    "lint:api": "python -m ruff check apps packages tests && python -m black --check apps packages tests && python -m mypy apps packages/backend",
+    "lint:api": "python -m ruff check apps packages server tests && python -m black --check apps packages server tests && python -m mypy server",
     "lint:web": "pnpm --filter @yoyo/web lint"
   },
   "devDependencies": { "concurrently": "^9.1.2" }

@@ -13,14 +13,14 @@
 
 ## 目录放置规则
 
-- `apps/api/app/main.py`：FastAPI 启动、配置读取、Router 组装、依赖注入和基础生命周期。
-- `packages/backend/controller`：统一 HTTP 路由、身份解析、参数校验、跨模块调用协调及响应转换；不直接访问业务表。
-- `packages/backend/users`：注册、登录、忘记密码、密码重置、注销和当前用户身份。
-- `packages/backend/documents`：单个录入、批量录入、文档列表、详情、编辑、专题、标签、收藏、关联、来源、版本、切分、索引和检索。
-- `packages/backend/agent`：上下文、问题改写、检索编排、回答生成、引用选择、Run 快照和运行控制。
-- `packages/backend/agent/rag`：与 Agent 强绑定的 RAG 编排；文档数据与索引实现仍归 `documents`。
-- `packages/backend/sessions`：会话、消息、会话改名、历史记录、引用回放和当前活动 Run 关联；不负责回答策略、Run 生命周期和过程事件。
-- `packages/backend/infra`：数据库连接、缓存、后台任务、文件存储、模型 SDK 连接和配置校验；不承载产品业务判断。
+- `server/main.py`：FastAPI 启动、配置读取、Router 组装、依赖注入和基础生命周期。
+- `server/controller`：统一 HTTP 路由、身份解析、参数校验、跨模块调用协调及响应转换；不直接访问业务表。
+- `server/users`：注册、登录、忘记密码、密码重置、注销和当前用户身份。
+- `server/documents`：单个录入、批量录入、文档列表、详情、编辑、专题、标签、收藏、关联、来源、版本、切分、索引和基础候选查询。
+- `server/agent`：上下文、问题改写、检索编排、回答生成、引用选择、Run 快照和运行控制。
+- `server/agent/rag`：与 Agent 强绑定的 RAG 编排；文档数据与索引实现仍归 `documents`。
+- `server/sessions`：会话、消息、会话改名、历史记录、引用回放和当前活动 Run 关联；不负责回答策略、Run 生命周期和过程事件。
+- `server/infra`：数据库连接、缓存、后台任务、文件存储、模型 SDK 连接和配置校验；不承载产品业务判断。
 - `apps/web`：React 路由、页面入口、Provider、平台装配和前端环境变量。
 - `packages/core`：不依赖 React、DOM 或运行时环境变量的无头业务能力、类型和 API 客户端。
 - `packages/ui`：通用展示组件、样式和交互基础设施；不依赖 `packages/core`。
@@ -31,8 +31,8 @@
 
 ## 后端分层规则
 
-- `apps/api/app/main.py` 负责启动和装配，不负责业务流程。
-- `packages/backend/controller` 负责 HTTP 接入与跨模块接口调用；协调函数不依赖 HTTP 请求对象，供路由和恢复任务复用。
+- `server/main.py` 负责启动和装配，不负责业务流程。
+- `server/controller` 负责 HTTP 接入与跨模块接口调用；协调函数不依赖 HTTP 请求对象，供路由和恢复任务复用。
 - 恢复任务由启动入口注册，调度设施归 infra，运行状态规则归 agent，跨模块保存与清理由 controller 组合公开接口。
 - users、documents、sessions、agent、infra 是五个职责模块；controller 是同级接入目录，不另设 application 或顶层 clients。
 - 领域模块拥有自己的业务对象、业务规则和数据访问逻辑；不要把别的领域的业务实现复制过来。
@@ -41,11 +41,11 @@
 - `agent` 拥有一次问答运行的编排、工具调用、引用选择、Run、RunEvent、RunSnapshot 和运行状态。
 - `sessions` 可以保存 `active_run_id` 作为关联，但不拥有 Run；controller负责组合 sessions 与 agent。
 - `active_run_id` 必须通过原子条件更新领取；Run 创建失败、取消或进入失败/完成终态时，controller必须清理该关联。
-- 过程事件、取消、继续、Run 快照和重连恢复统一放在 `packages/backend/agent` 的运行控制中，不放在 `sessions`。
-- RAG 编排放在 `packages/backend/agent/rag`，但文档切分、版本、索引和检索数据必须留在 `documents`。
-- 外部 SDK 和服务连接放在 `packages/backend/infra`，由装配层注入 Agent 或 documents；领域模块不自行创建外部客户端。
+- 过程事件、取消、继续、Run 快照和重连恢复统一放在 `server/agent` 的运行控制中，不放在 `sessions`。
+- RAG 编排放在 `server/agent/rag`，但文档切分、版本、索引和检索数据必须留在 `documents`。
+- 外部 SDK 和服务连接放在 `server/infra`，由装配层注入 Agent 或 documents；领域模块不自行创建外部客户端。
 - 基础设施模块可以被领域模块调用，但 `infra` 不反向依赖领域模块。
-- 不创建通用 `utils`、通用 `services`、通用 `repository` 或 `apps/api/ai` 来兜底所有业务。
+- 不创建通用 `utils`、通用 `services`、通用 `repository` 或 `server/ai` 来兜底所有业务。
 - 数据库查询必须贴近所属领域，不使用一个跨领域的 Generic Store 包装所有查询。
 
 ## Agent 与工具边界
@@ -53,7 +53,7 @@
 - Agent 决定什么时候需要检索、调用哪个工具以及如何组织回答。
 - `agent/rag` 负责问题改写、检索计划、是否重查、重排、证据判断和上下文预算，不直接访问文档数据库。
 - 工具适配层只负责工具名称、参数、权限、结果格式和外部能力适配。
-- `documents` 负责文档内容、切分、版本、索引、权限/版本过滤、召回和候选结果融合；检索细节始终属于 `documents`。
+- `documents` 负责文档内容、切分、版本、索引、权限/版本过滤和基础候选查询；检索策略、候选融合、重排和证据判断属于 `agent`。
 - Agent 不直接访问文档数据库；通过 `DocumentSearchPort` 等显式接口获得能力。
 - 工具通过注入的 Port 调用外部能力，禁止直接导入其他模块的内部业务实现。
 - infra 的模型连接直接使用官方 SDK 或兼容 SDK，不做无收益的多层 Provider 封装；Agent 通过明确的依赖使用它们。
