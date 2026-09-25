@@ -50,3 +50,17 @@ MVP 发布须满足以下验收条件：
 - 证据不足、索引失败和运行失败都有明确状态，不把模型猜测当成知识库结论。
 - 健康检查、后端测试、前端测试、lint 和前端构建通过。
 - 范围外功能通过独立 Issue 管理，不纳入 MVP 验收。
+
+## MVP 数据流文档
+
+主流程和异常恢复流程使用 Mermaid flowchart 单独维护，避免把业务流程塞进架构图：
+
+- `docs/flows/document-import.md`：资料录入、版本创建和索引刷新。
+- `docs/flows/document-update.md`：新版本发布和历史引用保留。
+- `docs/flows/question-answering.md`：混合检索、证据判断、补查和回答保存。
+- `docs/flows/deep-research.md`：复杂问题拆分、补查和研究报告保存。
+- `docs/flows/document-comparison.md`：指定文档或版本的对齐和差异分析。
+- `docs/flows/study-mode.md`：知识点练习、答题分析和掌握度记录。
+- `docs/flows/run-recovery.md`：事件回放、快照恢复和中断生成重试。
+
+MVP 必须体现四个设计取舍：证据不足时拒答、检索有预算、引用绑定版本、Run 可以从快照恢复。它们是知识库问答闭环的核心行为，不是后续装饰功能。
