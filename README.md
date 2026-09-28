@@ -22,10 +22,13 @@ python -m venv .venv
 source .venv/bin/activate
 python -m pip install --editable ".[dev]"
 
-# 4. 安装前端依赖
+# 4. 应用数据库迁移
+pnpm db:migrate
+
+# 5. 安装前端依赖
 pnpm install
 
-# 5. 启动前后端
+# 6. 启动前后端
 pnpm dev
 ~~~
 
@@ -58,6 +61,7 @@ python -m venv .venv
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\.venv\Scripts\Activate.ps1
 python -m pip install --editable ".[dev]"
+pnpm db:migrate
 pnpm install
 ~~~
 
@@ -82,7 +86,8 @@ pnpm lint
 
 ~~~bash
 pytest
-ruff check apps packages tests
+ruff check apps packages server tests
+black --check apps packages server tests
 mypy server
 
 cd apps/web
@@ -118,6 +123,8 @@ yoyo-knowledge-base/
 ├── pnpm-workspace.yaml
 ├── pnpm-lock.yaml
 ├── pyproject.toml
+├── alembic.ini          # 数据库迁移配置
+├── migrations/          # Alembic 迁移版本
 ├── docker-compose.yml   # 本地依赖服务编排
 ├── .env.example
 ├── .github/             # Issue、PR 和 CI 配置
