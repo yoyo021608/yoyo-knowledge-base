@@ -6,6 +6,9 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+.pytest-tmp/
+.pytest-state/
+.pytest-run-*/
 .mypy_cache/
 .ruff_cache/
 .coverage

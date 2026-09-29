@@ -11,6 +11,7 @@
     "build:web": "pnpm --filter @yoyo/web build",
     "test": "pnpm test:api && pnpm test:web",
     "test:api": "python -m pytest",
+    "db:migrate": "python -m alembic upgrade head",
     "test:web": "pnpm --filter @yoyo/web test",
     "lint": "pnpm lint:api && pnpm lint:web",
     "lint:api": "python -m ruff check apps packages server tests && python -m black --check apps packages server tests && python -m mypy server",
