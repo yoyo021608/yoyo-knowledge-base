@@ -8,6 +8,31 @@ body {
   margin: 0;
 }
 
+button,
+input {
+  font: inherit;
+}
+
+.app-nav {
+  display: flex;
+  gap: 16px;
+  padding: 16px 24px;
+  border-bottom: 1px solid #d0d7de;
+  background: #ffffff;
+}
+
+.app-nav a {
+  color: #0969da;
+  text-decoration: none;
+}
+
+.page-shell,
+main {
+  max-width: 760px;
+  margin: 32px auto;
+  padding: 0 20px;
+}
+
 h1 {
   font-size: 24px;
 }
@@ -26,4 +51,37 @@ h1 {
   border-radius: 6px;
   background-color: #ffffff;
   cursor: pointer;
+}
+
+.ui-button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.account-form {
+  display: grid;
+  gap: 16px;
+  margin: 20px 0;
+}
+
+.account-form label {
+  display: grid;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.account-form input {
+  padding: 10px 12px;
+  border: 1px solid #8c959f;
+  border-radius: 6px;
+}
+
+.account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.muted {
+  color: #57606a;
 }
