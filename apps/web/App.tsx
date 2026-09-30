@@ -1,6 +1,6 @@
 import { BrowserRouter, Link, Route, Routes } from "react-router-dom";
 
-import { AccountView, HomeView } from "@yoyo/views";
+import { AccountView, DocumentsView, HomeView } from "@yoyo/views";
 
 import { useAuthSession } from "./useAuthSession";
 
@@ -13,6 +13,7 @@ export function App() {
       <nav className="app-nav" aria-label="主导航">
         <Link to="/">首页</Link>
         <Link to="/account">账户</Link>
+        <Link to="/documents">知识库</Link>
       </nav>
       <Routes>
         <Route path="/" element={<HomeView apiBaseUrl={apiBaseUrl} />} />
@@ -24,6 +25,15 @@ export function App() {
               accessToken={auth.accessToken}
               onAuthenticated={auth.authenticate}
               onSignedOut={auth.clear}
+            />
+          }
+        />
+        <Route
+          path="/documents"
+          element={
+            <DocumentsView
+              apiBaseUrl={apiBaseUrl}
+              accessToken={auth.accessToken}
             />
           }
         />

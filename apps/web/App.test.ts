@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { buildApiUrl, loginAccount, requestPasswordReset } from "@yoyo/core";
+import {
+  buildApiUrl,
+  importDocument,
+  loginAccount,
+  requestPasswordReset,
+} from "@yoyo/core";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -58,5 +63,36 @@ describe("账户 core 接口", () => {
     );
 
     expect(result.developmentResetToken).toBe("reset-token");
+  });
+});
+
+describe("文档 core 接口", () => {
+  it("只通过 Bearer 身份录入并转换文档字段", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          document_id: "document-1",
+          version_id: "version-1",
+          index_status: "ready",
+        }),
+        { status: 201, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await importDocument("http://localhost:8000", "token-1", {
+      title: "模块边界",
+      content: "documents 负责知识本身。",
+      sourceType: "note",
+    });
+
+    expect(result.documentId).toBe("document-1");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/api/documents/import",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ Authorization: "Bearer token-1" }),
+      }),
+    );
   });
 });

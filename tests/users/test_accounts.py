@@ -5,11 +5,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from server.config import Settings
-from server.controller.reset_delivery import (
+from server.controller.users import get_users
+from server.controller.users.reset_delivery import (
     DevelopmentHttpResetDelivery,
     ProductionResetDelivery,
 )
-from server.controller.users import get_users
 from server.infra.database import Base, Database
 from server.main import create_app
 from server.users.errors import (
