@@ -5,6 +5,8 @@ from redis import Redis
 from server.config import Settings
 from server.infra.cache import RedisCache
 from server.infra.database import Database
+from server.infra.document_content import DefaultDocumentContentLoader
+from server.infra.embeddings import EmbeddingClient, create_embedding_client
 from server.infra.files import LocalFileStorage
 from server.infra.jobs import RedisJobQueue
 
@@ -16,6 +18,8 @@ class InfraResources:
     cache: RedisCache
     jobs: RedisJobQueue
     files: LocalFileStorage
+    embeddings: EmbeddingClient
+    document_content: DefaultDocumentContentLoader
 
     @classmethod
     def create(cls, settings: Settings) -> "InfraResources":
@@ -37,6 +41,8 @@ class InfraResources:
             cache=RedisCache(redis_client),
             jobs=RedisJobQueue(redis_client, settings.redis_job_queue_name),
             files=LocalFileStorage(settings.upload_dir),
+            embeddings=create_embedding_client(settings),
+            document_content=DefaultDocumentContentLoader(),
         )
 
     def close(self) -> None:
