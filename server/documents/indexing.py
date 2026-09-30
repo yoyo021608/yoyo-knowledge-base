@@ -8,6 +8,7 @@ import json
 import re
 from datetime import UTC, datetime
 from itertools import combinations
+from typing import cast
 from uuid import uuid4
 
 from sqlalchemy import delete, select
@@ -24,7 +25,7 @@ from server.documents.models import (
     KnowledgePointEntity,
     KnowledgeRelation,
 )
-from server.documents.types import RefreshRequest, RefreshStatusView
+from server.documents.types import IndexStatus, RefreshRequest, RefreshStatusView
 from server.infra.database import Database
 from server.infra.embeddings import EmbeddingClient, FakeEmbeddingClient
 
@@ -426,7 +427,7 @@ class DocumentIndexer:
             return RefreshStatusView(
                 document_id=document.id,
                 version_id=version.id,
-                status=version.index_status,
+                status=cast(IndexStatus, version.index_status),
                 error_message=version.index_error,
                 updated_at=version.index_updated_at,
             )
