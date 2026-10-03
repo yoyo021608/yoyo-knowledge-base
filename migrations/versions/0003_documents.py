@@ -29,7 +29,9 @@ class VectorType(sa.types.UserDefinedType[str]):
 
 def upgrade() -> None:
     # Docker 开发数据库使用 pgvector 镜像；扩展启用后才能创建向量列和近邻索引。
-    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    is_postgresql = op.get_bind().dialect.name == "postgresql"
+    if is_postgresql:
+        op.execute("CREATE EXTENSION IF NOT EXISTS vector")
     op.create_table(
         "document_topics",
         sa.Column("id", sa.String(length=36), nullable=False),
@@ -202,14 +204,15 @@ def upgrade() -> None:
         "document_chunks",
         ["user_id", "document_id", "version_id"],
     )
-    op.execute(
-        "CREATE INDEX ix_document_chunks_full_text ON document_chunks "
-        "USING GIN (to_tsvector('simple', search_text))"
-    )
-    op.execute(
-        "CREATE INDEX ix_document_chunks_embedding ON document_chunks "
-        "USING hnsw (embedding vector_cosine_ops)"
-    )
+    if is_postgresql:
+        op.execute(
+            "CREATE INDEX ix_document_chunks_full_text ON document_chunks "
+            "USING GIN (to_tsvector('simple', search_text))"
+        )
+        op.execute(
+            "CREATE INDEX ix_document_chunks_embedding ON document_chunks "
+            "USING hnsw (embedding vector_cosine_ops)"
+        )
 
     op.create_table(
         "document_knowledge_points",

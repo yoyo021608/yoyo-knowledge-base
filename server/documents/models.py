@@ -28,7 +28,7 @@ class VectorType(UserDefinedType[str]):
 
     cache_ok = True
 
-    def __init__(self, dimensions: int) -> None:
+    def __init__(self, dimensions: int = 256) -> None:
         self.dimensions = dimensions
 
     def get_col_spec(self, **_kwargs: object) -> str:

@@ -4,6 +4,7 @@ from redis import Redis
 
 from server.config import Settings
 from server.infra.cache import RedisCache
+from server.infra.chat import ChatClient, create_chat_client
 from server.infra.database import Database
 from server.infra.document_content import DefaultDocumentContentLoader
 from server.infra.embeddings import EmbeddingClient, create_embedding_client
@@ -20,6 +21,7 @@ class InfraResources:
     files: LocalFileStorage
     embeddings: EmbeddingClient
     document_content: DefaultDocumentContentLoader
+    chat: ChatClient
 
     @classmethod
     def create(cls, settings: Settings) -> "InfraResources":
@@ -43,6 +45,7 @@ class InfraResources:
             files=LocalFileStorage(settings.upload_dir),
             embeddings=create_embedding_client(settings),
             document_content=DefaultDocumentContentLoader(),
+            chat=create_chat_client(settings),
         )
 
     def close(self) -> None:

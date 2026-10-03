@@ -156,6 +156,19 @@ class SessionManagement:
             ).all()
             return tuple(_view(value) for value in values)
 
+    def list_claimed(self, limit: int = 1000) -> tuple[SessionView, ...]:
+        """供恢复协调扫描仍然关联 Run 的会话。"""
+        if not 1 <= limit <= 1000:
+            raise InvalidSessionInput("扫描数量必须在 1 到 1000 之间")
+        with self._database.session() as db:
+            values = db.scalars(
+                select(ConversationSession)
+                .where(ConversationSession.active_run_id.is_not(None))
+                .order_by(ConversationSession.updated_at)
+                .limit(limit)
+            ).all()
+            return tuple(_view(value) for value in values)
+
     def delete(self, session_id: str, user_id: str) -> None:
         """只完成 sessions 数据清理；controller 应先让 agent 清理活动 Run。"""
         with self._database.transaction() as db:

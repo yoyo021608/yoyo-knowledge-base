@@ -235,6 +235,8 @@ class SearchQuery:
     topic_id: str | None = None
     tag: str | None = None
     limit: int = 8
+    document_ids: tuple[str, ...] = ()
+    version_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
