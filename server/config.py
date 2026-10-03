@@ -34,6 +34,17 @@ class Settings(BaseSettings):
     openai_base_url: str = Field(default="https://api.openai.com/v1", min_length=1)
     embedding_model: str = Field(default="text-embedding-3-small", min_length=1)
     chat_model: str = Field(default="gpt-4.1-mini", min_length=1)
+    openai_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
+    openai_max_retries: int = Field(default=2, ge=0, le=5)
+    agent_model_window: int = Field(default=16_000, gt=0)
+    agent_reserved_output_tokens: int = Field(default=2_000, gt=0)
+    agent_safety_margin: int = Field(default=500, ge=0)
+    agent_history_budget: int = Field(default=3_000, ge=0)
+    agent_evidence_budget: int = Field(default=8_000, ge=0)
+    agent_retrieval_limit: int = Field(default=8, ge=1, le=50)
+    agent_max_retrieval_retries: int = Field(default=1, ge=0, le=3)
+    agent_retrieval_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
+    agent_recovery_interval_seconds: float = Field(default=10.0, gt=0, le=300)
     upload_dir: Path = Path("./data/uploads")
     cors_origins: str = "http://localhost:5173"
 
@@ -75,6 +86,17 @@ class Settings(BaseSettings):
         ):
             raise ValueError(
                 "JWT_SECRET must be changed and contain at least 32 characters"
+            )
+        usable = (
+            self.agent_model_window
+            - self.agent_reserved_output_tokens
+            - self.agent_safety_margin
+        )
+        if usable <= 0:
+            raise ValueError("Agent model window must leave room for input")
+        if self.agent_history_budget + self.agent_evidence_budget > usable:
+            raise ValueError(
+                "Agent history and evidence budgets exceed the input window"
             )
         return self
 

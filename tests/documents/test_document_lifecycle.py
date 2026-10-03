@@ -97,6 +97,20 @@ def test_import_update_search_archive_restore_and_export(
     assert not module.search.search(
         SearchQuery(user_id="user-a", text="引用必须绑定", mode="full_text")
     )
+    # 普通问答不读取旧索引；版本对比显式指定时仍可检索历史快照。
+    historical = module.search.search(
+        SearchQuery(
+            user_id="user-a",
+            text="引用必须绑定",
+            mode="full_text",
+            version_ids=(old_version_id,),
+        )
+    )
+    assert {item.version_id for item in historical} == {old_version_id}
+    assert module.search.validate_sources(
+        "user-a", historical, allow_historical_versions=True
+    )
+    assert not module.search.validate_sources("user-a", historical)
     assert module.search.search(
         SearchQuery(user_id="user-a", text="向量召回", mode="hybrid")
     )

@@ -71,7 +71,7 @@ class DocumentSearch:
         self._embeddings = embeddings or FakeEmbeddingClient()
 
     def search(self, query: SearchQuery) -> tuple[SearchHit, ...]:
-        """按请求模式评分，且只读取当前用户 active + ready 的当前版本。"""
+        """按请求模式评分；仅显式指定版本时允许读取历史 ready 版本。"""
         text = query.text.strip()
         if not text:
             raise InvalidDocumentInput("检索内容不能为空")
@@ -85,6 +85,21 @@ class DocumentSearch:
             return self._search_postgresql(query, text, query_embedding)
 
         with self._database.session() as session:
+            conditions = [
+                DocumentChunk.user_id == query.user_id,
+                Document.user_id == query.user_id,
+                Document.status == "active",
+                DocumentVersion.index_status == "ready",
+            ]
+            if query.version_ids:
+                conditions.append(DocumentVersion.id.in_(query.version_ids))
+            else:
+                conditions.extend(
+                    [
+                        Document.index_status == "ready",
+                        Document.current_version_id == DocumentChunk.version_id,
+                    ]
+                )
             statement = (
                 select(DocumentChunk, Document, SourceSnapshot)
                 .join(Document, Document.id == DocumentChunk.document_id)
@@ -96,14 +111,7 @@ class DocumentSearch:
                     SourceSnapshot,
                     SourceSnapshot.version_id == DocumentChunk.version_id,
                 )
-                .where(
-                    DocumentChunk.user_id == query.user_id,
-                    Document.user_id == query.user_id,
-                    Document.status == "active",
-                    Document.index_status == "ready",
-                    Document.current_version_id == DocumentChunk.version_id,
-                    DocumentVersion.index_status == "ready",
-                )
+                .where(*conditions)
             )
             if query.topic_id is not None:
                 statement = statement.where(Document.topic_id == query.topic_id)
@@ -113,6 +121,8 @@ class DocumentSearch:
                     .join(Tag, Tag.id == DocumentTag.tag_id)
                     .where(Tag.user_id == query.user_id, Tag.name == query.tag.strip())
                 )
+            if query.document_ids:
+                statement = statement.where(Document.id.in_(query.document_ids))
             rows = session.execute(
                 statement.distinct().limit(_MAX_CANDIDATE_ROWS)
             ).all()
@@ -183,9 +193,15 @@ class DocumentSearch:
                 WHERE c.user_id = :user_id
                   AND d.user_id = :user_id
                   AND d.status = 'active'
-                  AND d.index_status = 'ready'
-                  AND d.current_version_id = c.version_id
                   AND v.index_status = 'ready'
+                  AND (
+                      (CAST(:use_historical_versions AS boolean)
+                       AND v.id = ANY(CAST(:version_ids AS varchar[])))
+                      OR
+                      (NOT CAST(:use_historical_versions AS boolean)
+                       AND d.index_status = 'ready'
+                       AND d.current_version_id = c.version_id)
+                  )
                   AND (
                       CAST(:topic_id AS varchar) IS NULL
                       OR d.topic_id = CAST(:topic_id AS varchar)
@@ -199,6 +215,10 @@ class DocumentSearch:
                             AND dt.user_id = :user_id
                             AND t.name = CAST(:tag AS varchar)
                       )
+                  )
+                  AND (
+                      CAST(:document_ids_empty AS boolean)
+                      OR d.id = ANY(CAST(:document_ids AS varchar[]))
                   )
             ), ranked AS (
                 SELECT *,
@@ -228,6 +248,10 @@ class DocumentSearch:
                     "tag": query.tag.strip() if query.tag else None,
                     "mode": query.mode,
                     "limit": query.limit,
+                    "document_ids_empty": not query.document_ids,
+                    "document_ids": list(query.document_ids),
+                    "use_historical_versions": bool(query.version_ids),
+                    "version_ids": list(query.version_ids),
                 },
             ).mappings()
             return tuple(
@@ -248,47 +272,60 @@ class DocumentSearch:
             )
 
     def validate_sources(
-        self, user_id: str, hits: tuple[SearchHit, ...]
+        self,
+        user_id: str,
+        hits: tuple[SearchHit, ...],
+        *,
+        allow_historical_versions: bool = False,
     ) -> tuple[SearchHit, ...]:
-        """重新读取持久化片段，排除伪造、删除、归档或已过期的候选。"""
-        validated: list[SearchHit] = []
+        """批量复核候选；历史版本必须由比较模式显式授权。"""
+        if not hits:
+            return ()
+        by_key = {
+            (item.chunk_id, item.document_id, item.version_id): item for item in hits
+        }
+        conditions = [
+            DocumentChunk.id.in_(tuple(item.chunk_id for item in hits)),
+            DocumentChunk.user_id == user_id,
+            Document.user_id == user_id,
+            Document.status == "active",
+            DocumentVersion.index_status == "ready",
+        ]
+        if not allow_historical_versions:
+            conditions.extend(
+                [
+                    Document.index_status == "ready",
+                    Document.current_version_id == DocumentChunk.version_id,
+                ]
+            )
+        persisted: dict[tuple[str, str, str], SearchHit] = {}
         with self._database.session() as session:
-            for candidate in hits:
-                row = session.execute(
-                    select(DocumentChunk, Document, DocumentVersion, SourceSnapshot)
-                    .join(Document, Document.id == DocumentChunk.document_id)
-                    .join(
-                        DocumentVersion,
-                        DocumentVersion.id == DocumentChunk.version_id,
-                    )
-                    .join(
-                        SourceSnapshot,
-                        SourceSnapshot.version_id == DocumentChunk.version_id,
-                    )
-                    .where(
-                        DocumentChunk.id == candidate.chunk_id,
-                        DocumentChunk.user_id == user_id,
-                        DocumentChunk.document_id == candidate.document_id,
-                        DocumentChunk.version_id == candidate.version_id,
-                        Document.user_id == user_id,
-                        Document.status == "active",
-                        Document.index_status == "ready",
-                        Document.current_version_id == candidate.version_id,
-                        DocumentVersion.index_status == "ready",
-                    )
-                ).one_or_none()
-                if row is None:
-                    continue
-                chunk, document, _version, source = row
-                validated.append(
-                    SearchHit(
-                        document_id=document.id,
-                        version_id=chunk.version_id,
-                        title=document.title,
-                        content_snippet=chunk.content,
-                        chunk_id=chunk.id,
-                        source_url=source.source_url,
-                        score=candidate.score,
-                    )
+            rows = session.execute(
+                select(DocumentChunk, Document, DocumentVersion, SourceSnapshot)
+                .join(Document, Document.id == DocumentChunk.document_id)
+                .join(DocumentVersion, DocumentVersion.id == DocumentChunk.version_id)
+                .join(
+                    SourceSnapshot,
+                    SourceSnapshot.version_id == DocumentChunk.version_id,
                 )
-        return tuple(validated)
+                .where(*conditions)
+            ).all()
+            for chunk, document, _version, source in rows:
+                key = (chunk.id, document.id, chunk.version_id)
+                candidate = by_key.get(key)
+                if candidate is None:
+                    continue
+                persisted[key] = SearchHit(
+                    document_id=document.id,
+                    version_id=chunk.version_id,
+                    title=document.title,
+                    content_snippet=chunk.content,
+                    chunk_id=chunk.id,
+                    source_url=source.source_url,
+                    score=candidate.score,
+                )
+        return tuple(
+            persisted[key]
+            for item in hits
+            if (key := (item.chunk_id, item.document_id, item.version_id)) in persisted
+        )

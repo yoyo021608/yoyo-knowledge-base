@@ -4,6 +4,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Response, status
 
+from server.agent.errors import AgentError
+from server.agent.module import AgentModule
+from server.controller.agent.shared import agent_error, get_agent
 from server.controller.sessions.schemas import SessionRequest, SessionResponse
 from server.controller.sessions.shared import get_sessions, schema_of, session_error
 from server.controller.users import require_identity
@@ -85,11 +88,20 @@ def begin_delete(
 @router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
 def finish_delete(
     session_id: str,
+    agent: Annotated[AgentModule, Depends(get_agent)],
     sessions: Annotated[SessionsModule, Depends(get_sessions)],
     identity: Annotated[IdentityContext, Depends(require_identity)],
 ) -> Response:
     try:
+        session = sessions.management.get(session_id, identity.user_id)
+        agent.runs.purge_session_runs(session_id, identity.user_id)
+        if session.active_run_id is not None:
+            sessions.management.release_run(
+                session_id, identity.user_id, session.active_run_id
+            )
         sessions.management.delete(session_id, identity.user_id)
     except SessionsError as exc:
         raise session_error(exc) from exc
+    except AgentError as exc:
+        raise agent_error(exc) from exc
     return Response(status_code=status.HTTP_204_NO_CONTENT)
