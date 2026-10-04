@@ -69,3 +69,51 @@ export type {
   Tag,
   Topic,
 } from "./documents";
+export {
+  createSession,
+  deleteSession,
+  getSession,
+  listMessageCitations,
+  listPracticeRecords,
+  listSessionFeedback,
+  listSessionMessages,
+  listSessions,
+  listTaskResults,
+  renameSession,
+  saveSessionFeedback,
+} from "./sessions";
+export type {
+  Citation,
+  ConversationMessage,
+  ConversationSession,
+  FeedbackRating,
+  FeedbackTarget,
+  MessageRole,
+  PracticeRecord,
+  SessionFeedback,
+  SessionStatus,
+  TaskResult,
+  TaskResultKind,
+  TaskStatus,
+} from "./sessions";
+export {
+  askAgentQuestion,
+  cancelAgentRun,
+  continueAgentRun,
+  getAgentRun,
+  listAgentRunEvents,
+} from "./agent";
+export type {
+  AgentAnswer,
+  AgentMode,
+  AgentRun,
+  AgentRunEvent,
+  AnswerCitation,
+  EvidenceStatus,
+  QuestionInput,
+  QuestionResult,
+  RunEvaluation,
+  RunEventQuery,
+  RunStatus,
+  RunStep,
+} from "./agent";
