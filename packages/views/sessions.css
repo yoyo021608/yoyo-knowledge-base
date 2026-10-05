@@ -1,0 +1,202 @@
+.sessions-shell {
+  max-width: 1200px;
+  margin: 28px auto;
+  padding: 0 20px 48px;
+}
+
+.sessions-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.sessions-grid {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.32fr) minmax(0, 1fr);
+  gap: 20px;
+}
+
+.session-sidebar,
+.session-content {
+  display: grid;
+  align-content: start;
+  gap: 20px;
+}
+
+.sessions-shell .ui-card {
+  max-width: none;
+}
+
+.session-create {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.session-create input,
+.question-form input,
+.question-form select,
+.question-form textarea {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid #8c959f;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.session-list,
+.message-list,
+.citation-list,
+.run-events {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.session-list button {
+  display: grid;
+  width: 100%;
+  gap: 4px;
+  padding: 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.session-list button:hover,
+.session-list button.selected {
+  background: #eef5ff;
+}
+
+.session-list small,
+.message time,
+.citation-list small {
+  color: #57606a;
+}
+
+.question-form,
+.question-scope {
+  display: grid;
+  gap: 12px;
+}
+
+.question-form > label,
+.question-scope > label {
+  display: grid;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.question-scope fieldset {
+  display: grid;
+  gap: 6px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+}
+
+.question-scope input[type="checkbox"] {
+  width: auto;
+}
+
+.message-list {
+  display: grid;
+  gap: 12px;
+}
+
+.message {
+  padding: 12px;
+  border-radius: 8px;
+  background: #f6f8fa;
+}
+
+.message-assistant {
+  border-left: 4px solid #54aeff;
+}
+
+.message header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.citation-list li,
+.saved-result {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+}
+
+.citation-list blockquote {
+  margin: 8px 0;
+  padding-left: 10px;
+  border-left: 3px solid #d0d7de;
+}
+
+.citation-list a {
+  display: block;
+  margin-top: 6px;
+}
+
+.feedback-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.feedback-box {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.feedback-box input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+}
+
+.delete-confirmation {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid #cf222e;
+  border-radius: 6px;
+  background: #ffebe9;
+}
+
+.feedback-actions .ui-button {
+  padding: 4px 8px;
+  font-size: 13px;
+}
+
+.saved-result pre {
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.run-events {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.run-result pre {
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 800px) {
+  .sessions-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .session-create {
+    grid-template-columns: 1fr;
+  }
+}
