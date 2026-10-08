@@ -36,6 +36,16 @@ function tagsOf(value: string): string[] {
   return value.split(",").map((tag) => tag.trim()).filter(Boolean);
 }
 
+function safeSourceUrl(value: string | null): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 /** 当前文档的编辑、版本、来源、收藏、归档、删除和关联操作。 */
 export function DocumentDetailPanel({
   apiBaseUrl,
@@ -57,6 +67,7 @@ export function DocumentDetailPanel({
   const [relationType, setRelationType] = useState("相关资料");
   const [knowledge, setKnowledge] = useState<DocumentKnowledge | null>(null);
   const [viewedVersion, setViewedVersion] = useState<DocumentVersion | null>(null);
+  const sourceLink = safeSourceUrl(detail.version.source.sourceUrl);
 
   useEffect(() => {
     setTitle(detail.document.title);
@@ -201,7 +212,7 @@ export function DocumentDetailPanel({
       <details>
         <summary>来源快照</summary>
         <p>{detail.version.source.title}（{detail.version.source.sourceType}）</p>
-        {detail.version.source.sourceUrl && <a href={detail.version.source.sourceUrl} target="_blank" rel="noreferrer">打开原网址</a>}
+        {sourceLink && <a href={sourceLink} target="_blank" rel="noreferrer">打开原网址</a>}
       </details>
       <details>
         <summary>历史版本（{versions.length}）</summary>
@@ -232,7 +243,14 @@ export function DocumentDetailPanel({
           <input value={relationType} onChange={(event) => setRelationType(event.target.value)} />
           <Button onClick={() => void addRelation()}>建立关联</Button>
         </div>
-        <ul>{relations.map((relation) => <li key={relation.id}>{relation.relationType}：{relation.sourceDocumentId === detail.document.id ? relation.targetDocumentId : relation.sourceDocumentId} <button onClick={() => void removeRelation(relation.id)}>解除</button></li>)}</ul>
+        <ul>{relations.map((relation) => {
+          const relatedId = relation.sourceDocumentId === detail.document.id
+            ? relation.targetDocumentId
+            : relation.sourceDocumentId;
+          const relatedTitle = documents.find((document) => document.id === relatedId)?.title
+            ?? relatedId;
+          return <li key={relation.id}>{relation.relationType}：{relatedTitle} <button onClick={() => void removeRelation(relation.id)}>解除</button></li>;
+        })}</ul>
       </details>
     </Card>
   );

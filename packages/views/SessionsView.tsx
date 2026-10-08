@@ -19,6 +19,7 @@ import {
   type FeedbackRating,
   type PracticeRecord,
   type QuestionInput,
+  type AgentMode,
   type SessionFeedback,
   type Tag,
   type TaskResult,
@@ -35,8 +36,9 @@ import "./sessions.css";
 
 interface Props {
   apiBaseUrl: string;
-  accessToken: string | null;
+  accessToken: string;
   runDraftStore?: RunDraftStore;
+  initialQuestion?: { mode: AgentMode; question: string } | null;
 }
 
 function messageOf(error: unknown): string {
@@ -44,7 +46,7 @@ function messageOf(error: unknown): string {
 }
 
 /** 组合 sessions 持久化结果和 agent 运行控制，不在视图中复制后端业务规则。 */
-export function SessionsView({ apiBaseUrl, accessToken, runDraftStore }: Props) {
+export function SessionsView({ apiBaseUrl, accessToken, runDraftStore, initialQuestion }: Props) {
   const [sessions, setSessions] = useState<ConversationSession[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
@@ -61,7 +63,7 @@ export function SessionsView({ apiBaseUrl, accessToken, runDraftStore }: Props) 
   const selected = sessions.find((session) => session.id === selectedId) ?? null;
 
   const loadHistory = useCallback(async (): Promise<void> => {
-    if (!accessToken || !selectedId) return;
+    if (!selectedId) return;
     const request = ++historyRequest.current;
     const [nextMessages, nextTasks, nextPractice, nextFeedback] = await Promise.all([
       listSessionMessages(apiBaseUrl, accessToken, selectedId),
@@ -78,7 +80,6 @@ export function SessionsView({ apiBaseUrl, accessToken, runDraftStore }: Props) 
 
   const loadSessions = useCallback(
     async (preferredId?: string): Promise<void> => {
-      if (!accessToken) return;
       const values = await listSessions(apiBaseUrl, accessToken);
       setSessions(values);
       const candidate = preferredId ?? selectedId;
@@ -97,7 +98,7 @@ export function SessionsView({ apiBaseUrl, accessToken, runDraftStore }: Props) 
 
   const runState = useRunRecovery({
     apiBaseUrl,
-    accessToken: accessToken ?? "",
+    accessToken,
     sessionId: selectedId,
     activeRunId: selected?.activeRunId ?? null,
     draftStore: runDraftStore,
@@ -105,19 +106,6 @@ export function SessionsView({ apiBaseUrl, accessToken, runDraftStore }: Props) 
   });
 
   useEffect(() => {
-    if (!accessToken) {
-      historyRequest.current += 1;
-      setSessions([]);
-      setSelectedId(null);
-      setMessages([]);
-      setTaskResults([]);
-      setPractice([]);
-      setFeedback([]);
-      setDocuments([]);
-      setTopics([]);
-      setTags([]);
-      return;
-    }
     let active = true;
     void listSessions(apiBaseUrl, accessToken)
       .then((sessionValues) => {
@@ -151,7 +139,7 @@ export function SessionsView({ apiBaseUrl, accessToken, runDraftStore }: Props) 
   }, [accessToken, apiBaseUrl]);
 
   useEffect(() => {
-    if (!selectedId || !accessToken) {
+    if (!selectedId) {
       setMessages([]);
       setTaskResults([]);
       setPractice([]);
@@ -180,7 +168,6 @@ export function SessionsView({ apiBaseUrl, accessToken, runDraftStore }: Props) 
 
   async function create(name: string): Promise<void> {
     await withPending(async () => {
-      if (!accessToken) return;
       const created = await createSession(apiBaseUrl, accessToken, name);
       await loadSessions(created.id);
     });
@@ -188,7 +175,7 @@ export function SessionsView({ apiBaseUrl, accessToken, runDraftStore }: Props) 
 
   async function rename(name: string): Promise<void> {
     await withPending(async () => {
-      if (!accessToken || !selectedId) return;
+      if (!selectedId) return;
       await renameSession(apiBaseUrl, accessToken, selectedId, name);
       await loadSessions(selectedId);
     });
@@ -196,7 +183,7 @@ export function SessionsView({ apiBaseUrl, accessToken, runDraftStore }: Props) 
 
   async function remove(): Promise<void> {
     await withPending(async () => {
-      if (!accessToken || !selectedId) return;
+      if (!selectedId) return;
       await deleteSession(apiBaseUrl, accessToken, selectedId);
       await loadSessions();
     });
@@ -208,7 +195,7 @@ export function SessionsView({ apiBaseUrl, accessToken, runDraftStore }: Props) 
     rating: FeedbackRating,
     comment: string,
   ): Promise<void> {
-    if (!accessToken || !selectedId) return;
+    if (!selectedId) return;
     try {
       await saveSessionFeedback(apiBaseUrl, accessToken, selectedId, {
         targetType,
@@ -239,18 +226,10 @@ export function SessionsView({ apiBaseUrl, accessToken, runDraftStore }: Props) 
     setSelectedId(sessionId);
   }
 
-  if (!accessToken) {
-    return (
-      <main className="page-shell">
-        <Card><h1>知识问答</h1><p>请先到账户页面登录，再创建会话并使用知识库。</p></Card>
-      </main>
-    );
-  }
-
   return (
     <main className="sessions-shell">
       <header className="sessions-header">
-        <div><h1>知识问答</h1><p className="muted">回答绑定证据版本，运行过程可取消、继续和断线回放。</p></div>
+        <div><h1>知识问答</h1><p className="muted">让回答连接具体内容，让未完成的思考随时得以继续</p></div>
       </header>
       {notice && <p className="notice" role="status">{notice}</p>}
       <div className="sessions-grid">
@@ -276,7 +255,6 @@ export function SessionsView({ apiBaseUrl, accessToken, runDraftStore }: Props) 
               <RunActivity
                 run={runState.run}
                 events={runState.events}
-                result={runState.result}
                 pending={runState.pending}
                 error={runState.error}
                 onCancel={runState.cancel}
@@ -291,11 +269,12 @@ export function SessionsView({ apiBaseUrl, accessToken, runDraftStore }: Props) 
                 topics={topics}
                 tags={tags}
                 disabled={pending || runState.pending || selected.status === "deleting" || Boolean(selected.activeRunId)}
+                initialQuestion={initialQuestion}
                 onAsk={submitQuestion}
               />
             </>
           ) : (
-            <Card><h2>还没有会话</h2><p>先在左侧创建一个会话。</p></Card>
+            <Card><h2>还没有会话</h2><p>从左侧开启第一次探索</p></Card>
           )}
         </section>
       </div>

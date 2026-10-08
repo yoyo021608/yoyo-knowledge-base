@@ -1,4 +1,5 @@
 import { ApiError } from "./auth";
+import { reportUnauthorized } from "./auth-events";
 import { buildApiUrl } from "./client";
 
 export type AgentMode = "quick" | "research" | "comparison" | "study";
@@ -110,6 +111,7 @@ async function request<T>(
   });
   const text = await response.text();
   if (!response.ok) {
+    if (response.status === 401) reportUnauthorized();
     let message = `请求失败：HTTP ${response.status}`;
     if (text) {
       try {

@@ -1,4 +1,4 @@
-import type { AgentRun, AgentRunEvent, QuestionResult } from "@yoyo/core";
+import type { AgentRun, AgentRunEvent } from "@yoyo/core";
 import { Button, Card } from "@yoyo/ui";
 
 import { canCancelRun, canContinueRun } from "./runState";
@@ -6,7 +6,6 @@ import { canCancelRun, canContinueRun } from "./runState";
 interface Props {
   run: AgentRun | null;
   events: AgentRunEvent[];
-  result: QuestionResult | null;
   pending: boolean;
   error: string;
   onCancel: () => Promise<void>;
@@ -31,12 +30,6 @@ const STEP_LABELS: Record<AgentRun["step"], string> = {
   persist_answer: "保存回答",
 };
 
-const EVIDENCE_LABELS: Record<QuestionResult["answer"]["evidenceStatus"], string> = {
-  sufficient: "证据充分",
-  insufficient: "证据不足",
-  failed: "证据检索失败",
-};
-
 const EVENT_LABELS: Record<string, string> = {
   "run.created": "已创建运行",
   "run.started": "已开始执行",
@@ -53,53 +46,17 @@ const EVENT_LABELS: Record<string, string> = {
   "generation.interrupted": "上次生成被中断，准备重新生成",
 };
 
-function stringList(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
-}
-
-function ModeResult({ run, result }: { run: AgentRun; result: QuestionResult }) {
-  const value = result.modeResult;
-  if (!value) return null;
-  if (run.mode === "research") {
-    const subquestions = stringList(value.subquestions);
-    const unresolved = stringList(value.unresolved_questions);
-    return (
-      <details>
-        <summary>研究过程</summary>
-        {subquestions.length > 0 && <ol>{subquestions.map((item) => <li key={item}>{item}</li>)}</ol>}
-        {unresolved.length > 0 && <p>仍缺少证据：{unresolved.join("；")}</p>}
-      </details>
-    );
-  }
-  if (run.mode === "comparison") {
-    return <p>已对齐 {Number(value.compared_scope_count ?? 0)} 个文档版本的证据。</p>;
-  }
-  if (run.mode === "study") {
-    const exercise = typeof value.exercise === "string" ? value.exercise : null;
-    const verdict = typeof value.verdict === "string" ? value.verdict : null;
-    const score = typeof value.automatic_score === "number" ? value.automatic_score : null;
-    return (
-      <div>
-        {exercise && <p><strong>练习：</strong>{exercise}</p>}
-        {verdict && <p><strong>判定：</strong>{verdict}{score === null ? "" : `（得分 ${(score * 100).toFixed(0)}%）`}</p>}
-      </div>
-    );
-  }
-  return null;
-}
-
 /** 展示后端 Run 与持久化事件，不把事件当作最终消息数据。 */
 export function RunActivity({
   run,
   events,
-  result,
   pending,
   error,
   onCancel,
   onResume,
   onRefresh,
 }: Props) {
-  if (!run && !error && !result) return null;
+  if (!run && !error) return null;
   return (
     <Card>
       <h2>本次运行</h2>
@@ -115,29 +72,6 @@ export function RunActivity({
         </>
       )}
       {error && <p className="notice" role="alert">{error}</p>}
-      {result && (
-        <div className="run-result">
-          <p><strong>证据状态：</strong>{EVIDENCE_LABELS[result.answer.evidenceStatus]}</p>
-          <p>{result.answer.text}</p>
-          <p>
-            命中 {result.evaluation.hitCount} 条证据，引用覆盖率
-            {` ${(result.evaluation.citationCoverage * 100).toFixed(0)}%`}
-          </p>
-          {result.answer.citations.length > 0 && (
-            <details>
-              <summary>本次引用（{result.answer.citations.length}）</summary>
-              <ul>
-                {result.answer.citations.map((citation) => (
-                  <li key={`${citation.documentVersionId}:${citation.chunkId}`}>
-                    <strong>{citation.titleSnapshot}</strong>：{citation.quote}
-                  </li>
-                ))}
-              </ul>
-            </details>
-          )}
-          {run && <ModeResult run={run} result={result} />}
-        </div>
-      )}
       {events.length > 0 && (
         <details>
           <summary>过程事件（{events.length}）</summary>

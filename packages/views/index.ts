@@ -1,5 +1,10 @@
 export { HomeView } from "./HomeView";
+export { WorkspaceView } from "./WorkspaceView";
+export type { WorkspaceQuestionDraft } from "./WorkspaceView";
+export { LoginView } from "./LoginView";
+export { NotFoundView } from "./NotFoundView";
 export { AccountView } from "./AccountView";
 export { DocumentsView } from "./DocumentsView";
 export { SessionsView } from "./SessionsView";
 export type { RunDraftStore } from "./sessions/useRunRecovery";
+export type { ViewLinkComponent, ViewLinkProps } from "./navigation";

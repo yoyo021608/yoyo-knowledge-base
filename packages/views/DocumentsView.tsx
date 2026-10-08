@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   downloadDocuments,
@@ -23,12 +23,13 @@ import { OrganizationPanel } from "./documents/OrganizationPanel";
 
 interface Props {
   apiBaseUrl: string;
-  accessToken: string | null;
+  accessToken: string;
 }
 
 /** 组合 documents 的各业务视图，数据读取与状态刷新集中在这一层。 */
 export function DocumentsView({ apiBaseUrl, accessToken }: Props) {
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
+  const [relationDocuments, setRelationDocuments] = useState<DocumentSummary[]>([]);
   const [archived, setArchived] = useState<DocumentSummary[]>([]);
   const [topics, setTopics] = useState<Topic[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
@@ -41,13 +42,14 @@ export function DocumentsView({ apiBaseUrl, accessToken }: Props) {
   const [sourceFilter, setSourceFilter] = useState<SourceType | "">("");
   const [indexFilter, setIndexFilter] = useState("");
   const [favoriteOnly, setFavoriteOnly] = useState(false);
+  const loadRequest = useRef(0);
 
   const showMessage = useCallback((value: string) => setMessage(value), []);
 
   const load = useCallback(
     async (documentId?: string): Promise<void> => {
-      if (!accessToken) return;
-      const [activeDocuments, archivedDocuments, topicValues, tagValues] =
+      const request = ++loadRequest.current;
+      const [activeDocuments, allActiveDocuments, archivedDocuments, topicValues, tagValues] =
         await Promise.all([
           listDocuments(apiBaseUrl, accessToken, {
             status: "active",
@@ -58,11 +60,15 @@ export function DocumentsView({ apiBaseUrl, accessToken }: Props) {
             indexStatus: indexFilter || undefined,
             isFavorite: favoriteOnly || undefined,
           }),
+          listDocuments(apiBaseUrl, accessToken, { status: "active" }),
           listDocuments(apiBaseUrl, accessToken, { status: "archived" }),
           listTopics(apiBaseUrl, accessToken),
           listTags(apiBaseUrl, accessToken),
         ]);
+      // 筛选、切换文档或退出登录可能触发并发读取，只接受最后一次请求的结果。
+      if (request !== loadRequest.current) return;
       setDocuments(activeDocuments);
+      setRelationDocuments(allActiveDocuments);
       setArchived(archivedDocuments);
       setTopics(topicValues);
       setTags(tagValues);
@@ -71,6 +77,7 @@ export function DocumentsView({ apiBaseUrl, accessToken }: Props) {
           getDocument(apiBaseUrl, accessToken, documentId),
           listDocumentVersions(apiBaseUrl, accessToken, documentId),
         ]);
+        if (request !== loadRequest.current) return;
         setDetail(nextDetail);
         setVersions(nextVersions);
       } else {
@@ -88,7 +95,6 @@ export function DocumentsView({ apiBaseUrl, accessToken }: Props) {
   }, [load]);
 
   async function download(format: "markdown" | "json", documentId?: string): Promise<void> {
-    if (!accessToken) return;
     try {
       const download = await downloadDocuments(apiBaseUrl, accessToken, format, {
         documentIds: documentId ? [documentId] : undefined,
@@ -105,23 +111,12 @@ export function DocumentsView({ apiBaseUrl, accessToken }: Props) {
     }
   }
 
-  if (!accessToken) {
-    return (
-      <main className="page-shell">
-        <Card>
-          <h1>个人知识库</h1>
-          <p>请先到账户页面登录，再录入和管理自己的资料。</p>
-        </Card>
-      </main>
-    );
-  }
-
   return (
     <main className="knowledge-shell">
       <header className="knowledge-header">
         <div>
           <h1>个人知识库</h1>
-          <p className="muted">版本可追溯、来源可复核、候选片段可检索。</p>
+          <p className="muted">保留内容的变化与来处，也让重要片段随时可被找到</p>
         </div>
         <div className="account-actions">
           <Button onClick={() => void download("markdown")}>导出 Markdown</Button>
@@ -178,7 +173,7 @@ export function DocumentsView({ apiBaseUrl, accessToken }: Props) {
               accessToken={accessToken}
               detail={detail}
               versions={versions}
-              documents={[...documents, ...archived]}
+              documents={[...relationDocuments, ...archived]}
               topics={topics}
               onChanged={load}
               onMessage={showMessage}

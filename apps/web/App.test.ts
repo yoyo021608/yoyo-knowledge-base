@@ -2,9 +2,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildApiUrl,
+  getAgentRun,
   importDocument,
   loginAccount,
   requestPasswordReset,
+  subscribeUnauthorized,
 } from "@yoyo/core";
 
 afterEach(() => {
@@ -94,5 +96,57 @@ describe("文档 core 接口", () => {
         headers: expect.objectContaining({ Authorization: "Bearer token-1" }),
       }),
     );
+  });
+
+  it("认证请求返回 401 时统一上报登录失效", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ detail: "登录已失效" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    const listener = vi.fn();
+    const unsubscribe = subscribeUnauthorized(listener);
+
+    try {
+      await expect(
+        importDocument("http://localhost:8000", "expired-token", {
+          title: "过期请求",
+          content: "不会被保存",
+          sourceType: "note",
+        }),
+      ).rejects.toThrow("登录已失效");
+      expect(listener).toHaveBeenCalledTimes(1);
+    } finally {
+      unsubscribe();
+    }
+  });
+});
+
+describe("Agent core 接口", () => {
+  it("运行请求返回 401 时统一上报登录失效", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ detail: "登录已失效" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    const listener = vi.fn();
+    const unsubscribe = subscribeUnauthorized(listener);
+
+    try {
+      await expect(
+        getAgentRun("http://localhost:8000", "expired-token", "run-1"),
+      ).rejects.toThrow("登录已失效");
+      expect(listener).toHaveBeenCalledTimes(1);
+    } finally {
+      unsubscribe();
+    }
   });
 });

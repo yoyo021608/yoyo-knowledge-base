@@ -1,64 +1,189 @@
-import { BrowserRouter, Link, Route, Routes } from "react-router-dom";
+import { useCallback, useState } from "react";
+import { BrowserRouter, Route, Routes, useNavigate } from "react-router-dom";
 
-import { AccountView, DocumentsView, HomeView, SessionsView } from "@yoyo/views";
+import {
+  AccountView,
+  DocumentsView,
+  HomeView,
+  NotFoundView,
+  SessionsView,
+  WorkspaceView,
+} from "@yoyo/views";
 
+import { AppNavigation } from "./AppNavigation";
+import { RouteLink } from "./RouteLink";
+import { LoginRoute } from "./auth/LoginRoute";
+import { RequireAuth } from "./auth/RequireAuth";
 import { browserRunDraftStore } from "./runDraftStore";
 import { useAuthSession } from "./useAuthSession";
+import { browserWorkspaceDraftStore } from "./workspaceDraftStore";
 
-export function App() {
+interface SessionsRouteProps {
+  accessToken: string;
+  apiBaseUrl: string;
+}
+
+function SessionsRoute({ accessToken, apiBaseUrl }: SessionsRouteProps) {
+  const [initialQuestion] = useState(() => {
+    try {
+      return browserWorkspaceDraftStore.consume();
+    } catch {
+      return null;
+    }
+  });
+
+  return (
+    <SessionsView
+      apiBaseUrl={apiBaseUrl}
+      accessToken={accessToken}
+      initialQuestion={initialQuestion}
+      runDraftStore={browserRunDraftStore}
+    />
+  );
+}
+
+function Application() {
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
-  const auth = useAuthSession();
+  const auth = useAuthSession(apiBaseUrl);
+  const navigate = useNavigate();
+  const [navigationCollapsed, setNavigationCollapsed] = useState(() => {
+    try {
+      return window.localStorage.getItem("yoyo.navigation.collapsed") === "true";
+    } catch {
+      return false;
+    }
+  });
 
-  function signOut(): void {
+  function changeNavigationCollapsed(collapsed: boolean): void {
+    setNavigationCollapsed(collapsed);
+    try {
+      window.localStorage.setItem("yoyo.navigation.collapsed", String(collapsed));
+    } catch {
+      // 浏览器禁止存储时仍保留本次页面中的收缩状态。
+    }
+  }
+
+  const signOut = useCallback((): void => {
     try {
       browserRunDraftStore.clearAll();
+      browserWorkspaceDraftStore.clear();
     } catch {
       // 浏览器存储异常不能阻止当前页面撤销登录状态。
     }
     auth.clear();
-  }
+  }, [auth.clear]);
 
   return (
-    <BrowserRouter>
-      <nav className="app-nav" aria-label="主导航">
-        <Link to="/">首页</Link>
-        <Link to="/account">账户</Link>
-        <Link to="/documents">知识库</Link>
-        <Link to="/sessions">知识问答</Link>
-      </nav>
-      <Routes>
-        <Route path="/" element={<HomeView apiBaseUrl={apiBaseUrl} />} />
-        <Route
-          path="/account"
-          element={
-            <AccountView
-              apiBaseUrl={apiBaseUrl}
-              accessToken={auth.accessToken}
-              onAuthenticated={auth.authenticate}
-              onSignedOut={signOut}
-            />
-          }
+      <div className={`app-shell${navigationCollapsed ? " sidebar-collapsed" : ""}`}>
+        <AppNavigation
+          collapsed={navigationCollapsed}
+          isAuthenticated={auth.status === "authenticated"}
+          onCollapsedChange={changeNavigationCollapsed}
         />
-        <Route
-          path="/documents"
-          element={
-            <DocumentsView
-              apiBaseUrl={apiBaseUrl}
-              accessToken={auth.accessToken}
+        <div className="app-content">
+          <Routes>
+            <Route
+              path="/"
+              element={<HomeView isAuthenticated={auth.status === "authenticated"} LinkComponent={RouteLink} />}
             />
-          }
-        />
-        <Route
-          path="/sessions"
-          element={
-            <SessionsView
-              apiBaseUrl={apiBaseUrl}
-              accessToken={auth.accessToken}
-              runDraftStore={browserRunDraftStore}
+            <Route
+              path="/login"
+              element={
+                <LoginRoute
+                  accessToken={auth.accessToken}
+                  apiBaseUrl={apiBaseUrl}
+                  notice={auth.notice}
+                  onAuthenticated={auth.authenticate}
+                  status={auth.status}
+                />
+              }
             />
-          }
-        />
-      </Routes>
-    </BrowserRouter>
+            <Route
+              path="/workspace"
+              element={
+                <RequireAuth
+                  accessToken={auth.accessToken}
+                  error={auth.profileError}
+                  onRetry={() => void auth.refreshProfile()}
+                  status={auth.status}
+                >
+                  <WorkspaceView
+                    apiBaseUrl={apiBaseUrl}
+                    LinkComponent={RouteLink}
+                    onStartResearch={(draft) => {
+                      try {
+                        browserWorkspaceDraftStore.save(draft);
+                      } catch {
+                        // 存储不可用时仍允许进入会话页，用户可在会话页重新输入。
+                      }
+                      navigate("/sessions");
+                    }}
+                  />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/account"
+              element={
+                <RequireAuth
+                  accessToken={auth.accessToken}
+                  error={auth.profileError}
+                  onRetry={() => void auth.refreshProfile()}
+                  status={auth.status}
+                >
+                  {(accessToken) => (
+                    <AccountView
+                      apiBaseUrl={apiBaseUrl}
+                      accessToken={accessToken}
+                      onSignedOut={signOut}
+                      profile={auth.profile}
+                      profileError={auth.profileError}
+                      onRetryProfile={() => void auth.refreshProfile()}
+                    />
+                  )}
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/documents"
+              element={
+                <RequireAuth
+                  accessToken={auth.accessToken}
+                  error={auth.profileError}
+                  onRetry={() => void auth.refreshProfile()}
+                  status={auth.status}
+                >
+                  {(accessToken) => (
+                    <DocumentsView
+                      apiBaseUrl={apiBaseUrl}
+                      accessToken={accessToken}
+                    />
+                  )}
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/sessions"
+              element={
+                <RequireAuth
+                  accessToken={auth.accessToken}
+                  error={auth.profileError}
+                  onRetry={() => void auth.refreshProfile()}
+                  status={auth.status}
+                >
+                  {(accessToken) => (
+                    <SessionsRoute apiBaseUrl={apiBaseUrl} accessToken={accessToken} />
+                  )}
+                </RequireAuth>
+              }
+            />
+            <Route path="*" element={<NotFoundView LinkComponent={RouteLink} />} />
+          </Routes>
+        </div>
+      </div>
   );
+}
+
+export function App() {
+  return <BrowserRouter><Application /></BrowserRouter>;
 }

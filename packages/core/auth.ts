@@ -1,4 +1,5 @@
 import { buildApiUrl } from "./client";
+import { reportUnauthorized } from "./auth-events";
 
 /** 后端返回的公开账户身份，任何密码字段都不能进入 core。 */
 export interface UserProfile {
@@ -57,6 +58,7 @@ async function request<T>(
   });
 
   if (!response.ok) {
+    if (response.status === 401) reportUnauthorized();
     let message = `请求失败：HTTP ${response.status}`;
     try {
       const body = (await response.json()) as ErrorWireResponse;
