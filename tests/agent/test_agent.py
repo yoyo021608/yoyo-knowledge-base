@@ -103,6 +103,27 @@ def test_run_is_idempotent_and_rejects_changed_question(
         )
 
 
+def test_run_persists_execution_scope_and_rejects_changed_scope(
+    agent: tuple[AgentModule, FakeDocumentsPort, Database],
+) -> None:
+    module, _documents, _database = agent
+    options = ExecutionOptions(topic_id="topic-1", tag="python")
+    created = module.runs.create_run(
+        "s1", "u1", "request-scope", "research", _input(module), options
+    )
+
+    assert module.runs.get(created.run.id, "u1").snapshot.options == options
+    with pytest.raises(AgentRunConflict):
+        module.runs.create_run(
+            "s1",
+            "u1",
+            "request-scope",
+            "research",
+            _input(module),
+            ExecutionOptions(topic_id="topic-2", tag="python"),
+        )
+
+
 def test_quick_workflow_persists_recoverable_steps(
     agent: tuple[AgentModule, FakeDocumentsPort, Database],
 ) -> None:

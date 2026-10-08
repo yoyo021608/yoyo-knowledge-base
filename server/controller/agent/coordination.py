@@ -11,6 +11,7 @@ from server.agent.types import (
     ContextInput,
     ExecutionOptions,
     MessageContext,
+    RunBundle,
     WorkflowOutput,
 )
 from server.sessions.errors import SessionsError
@@ -39,6 +40,14 @@ class QuestionOutcome:
     status: str
     message: MessageView | None
     output: WorkflowOutput
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedQuestion:
+    """HTTP 接收阶段的持久化结果；只有 queued 运行需要交给后台执行。"""
+
+    bundle: RunBundle
+    should_execute: bool
 
 
 def _history(
@@ -140,31 +149,87 @@ def _cleanup_failure(
         sessions.management.release_run(command.session_id, user_id, run_id)
 
 
-def execute_question(
+def prepare_question(
     agent: AgentModule,
     sessions: SessionsModule,
     user_id: str,
     command: QuestionCommand,
-) -> QuestionOutcome:
-    """执行提问闭环；调用者只负责协议转换和错误映射。"""
+) -> PreparedQuestion:
+    """持久化 Run、原始参数和用户消息，随后即可向客户端返回 run_id。"""
+    sessions.management.get(command.session_id, user_id)
+    options = ExecutionOptions(
+        topic_id=command.topic_id,
+        tag=command.tag,
+        document_ids=command.document_ids,
+        version_ids=command.version_ids,
+        user_answer=command.user_answer,
+    )
+    context = ContextInput(
+        question=command.question,
+        history=_history(sessions, command.session_id, user_id),
+        search_hits=(),
+        budget=agent.default_budget,
+    )
+    bundle = agent.runs.create_run(
+        command.session_id,
+        user_id,
+        command.request_id,
+        command.mode,
+        context,
+        options,
+    )
+    if bundle.run.status in {"cancelled", "failed"}:
+        raise AgentRunConflict("终态运行不能用原 request_id 重新执行")
+    if bundle.run.status != "queued":
+        return PreparedQuestion(bundle, False)
+
     claimed = False
-    run_id = ""
     try:
-        sessions.management.get(command.session_id, user_id)
-        context = ContextInput(
-            question=command.question,
-            history=_history(sessions, command.session_id, user_id),
-            search_hits=(),
-            budget=agent.default_budget,
+        sessions.management.try_claim_run(command.session_id, user_id, bundle.run.id)
+        claimed = True
+        sessions.history.append_user(
+            command.session_id, user_id, bundle.run.id, command.question
         )
-        bundle = agent.runs.create_run(
-            command.session_id,
+    except (AgentError, SessionsError) as exc:
+        _cleanup_failure(
+            agent,
+            sessions,
+            command,
             user_id,
-            command.request_id,
-            command.mode,
-            context,
+            bundle.run.id,
+            claimed,
+            str(exc),
         )
-        run_id = bundle.run.id
+        raise
+    return PreparedQuestion(agent.runs.get(bundle.run.id, user_id), True)
+
+
+def _command_from_bundle(bundle: RunBundle) -> QuestionCommand:
+    options = bundle.snapshot.options
+    return QuestionCommand(
+        session_id=bundle.run.session_id,
+        request_id=bundle.run.request_id,
+        question=bundle.snapshot.input.question,
+        mode=bundle.run.mode,
+        topic_id=options.topic_id,
+        tag=options.tag,
+        document_ids=options.document_ids,
+        version_ids=options.version_ids,
+        user_answer=options.user_answer,
+    )
+
+
+def execute_prepared_question(
+    agent: AgentModule,
+    sessions: SessionsModule,
+    user_id: str,
+    run_id: str,
+) -> QuestionOutcome:
+    """执行已持久化的 Run；恢复时完全使用服务端快照中的原始参数。"""
+    claimed = True
+    bundle = agent.runs.get(run_id, user_id)
+    command = _command_from_bundle(bundle)
+    try:
         if bundle.run.status == "completed":
             output = output_from_snapshot(agent, run_id, user_id)
             message = next(
@@ -177,10 +242,9 @@ def execute_question(
             )
             return QuestionOutcome(run_id, "completed", message, output)
         if bundle.run.status in {"cancelled", "failed"}:
-            raise AgentRunConflict("终态运行不能用原 request_id 重新执行")
+            raise AgentRunConflict("终态运行不能重新执行")
 
         sessions.management.try_claim_run(command.session_id, user_id, run_id)
-        claimed = True
         user_message = sessions.history.append_user(
             command.session_id, user_id, run_id, command.question
         )
@@ -191,15 +255,7 @@ def execute_question(
                 agent.runs.continue_run(run_id, user_id)
             executing = agent.runs.execute_run(run_id, user_id, user_message.id)
             output = agent.workflows.execute(
-                executing,
-                user_id,
-                ExecutionOptions(
-                    topic_id=command.topic_id,
-                    tag=command.tag,
-                    document_ids=command.document_ids,
-                    version_ids=command.version_ids,
-                    user_answer=command.user_answer,
-                ),
+                executing, user_id, executing.snapshot.options
             )
             generated = agent.runs.get(run_id, user_id).snapshot
             agent.runs.save_snapshot(
@@ -237,6 +293,37 @@ def execute_question(
             "执行过程中发生未预期错误",
         )
         raise
+
+
+def execute_prepared_in_background(
+    agent: AgentModule,
+    sessions: SessionsModule,
+    user_id: str,
+    run_id: str,
+) -> None:
+    """后台任务边界统一吸收已记录的异常，避免响应发送后异常泄漏到 ASGI。"""
+    try:
+        execute_prepared_question(agent, sessions, user_id, run_id)
+    except (AgentError, SessionsError):
+        _LOGGER.warning(
+            "agent.question.background_failed",
+            extra={"run_id": run_id},
+            exc_info=True,
+        )
+    except Exception:
+        # execute_prepared_question 已记录上下文和失败状态，这里只隔离后台边界。
+        pass
+
+
+def execute_question(
+    agent: AgentModule,
+    sessions: SessionsModule,
+    user_id: str,
+    command: QuestionCommand,
+) -> QuestionOutcome:
+    """同步适配器保留给模块测试；HTTP 路由使用 prepare + 后台执行。"""
+    prepared = prepare_question(agent, sessions, user_id, command)
+    return execute_prepared_question(agent, sessions, user_id, prepared.bundle.run.id)
 
 
 def cancel_and_release(

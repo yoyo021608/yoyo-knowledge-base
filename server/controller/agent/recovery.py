@@ -83,9 +83,13 @@ def recover_pending(agent: AgentModule, sessions: SessionsModule) -> int:
 
 def recover_after_restart(agent: AgentModule, sessions: SessionsModule) -> int:
     """启动时暂停失去执行者的 Run，清理孤立 queued，并补偿最终保存。"""
-    paused = agent.runs.recover_interrupted()
+    paused = 0
     cleaned = 0
     for run in agent.runs.list_recoverable():
+        if run.status == "running":
+            agent.runs.pause_interrupted(run.id)
+            paused += 1
+            continue
         if run.status != "queued":
             continue
         try:
@@ -93,6 +97,9 @@ def recover_after_restart(agent: AgentModule, sessions: SessionsModule) -> int:
             if session.active_run_id != run.id:
                 agent.runs.fail(run.id, run.user_id, "运行未能领取所属会话")
                 cleaned += 1
+            else:
+                agent.runs.pause_interrupted(run.id)
+                paused += 1
         except SessionsError:
             agent.runs.fail(run.id, run.user_id, "所属会话不存在")
             cleaned += 1

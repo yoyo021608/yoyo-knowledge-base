@@ -36,6 +36,7 @@ interface Options {
 interface RunRecoveryState {
   run: AgentRun | null;
   events: AgentRunEvent[];
+  /** 兼容现有结果展示；异步运行的最终回答由 sessions 历史刷新取得。 */
   result: QuestionResult | null;
   pending: boolean;
   error: string;
@@ -71,18 +72,6 @@ function saveDraft(
     // 外部存储失败时仍保留当前页面内的恢复参数。
   }
   fallback.save(requestId, input);
-}
-
-function loadDraft(
-  primary: RunDraftStore,
-  fallback: RunDraftStore,
-  requestId: string,
-): QuestionInput | null {
-  try {
-    return primary.load(requestId) ?? fallback.load(requestId);
-  } catch {
-    return fallback.load(requestId);
-  }
 }
 
 function removeDraft(
@@ -242,9 +231,9 @@ export function useRunRecovery({
       setResult(null);
       try {
         saveDraft(activeDraftStore, memoryDraftStore, input.requestId, input);
-        const nextResult = await askAgentQuestion(apiBaseUrl, accessToken, input);
-        setResult(nextResult);
-        const nextRun = await refreshRun(nextResult.runId);
+        const acceptedRun = await askAgentQuestion(apiBaseUrl, accessToken, input);
+        setRun(acceptedRun);
+        const nextRun = await refreshRun(acceptedRun.id);
         if (nextRun && isTerminalRun(nextRun.status)) {
           removeDraft(activeDraftStore, memoryDraftStore, nextRun.requestId);
           await onTerminal();
@@ -281,14 +270,8 @@ export function useRunRecovery({
     setPending(true);
     setError("");
     try {
-      const input = loadDraft(activeDraftStore, memoryDraftStore, run.requestId);
-      if (!input) {
-        setError("缺少本次运行的原始提问范围，不能改变参数后继续；请重新发起问题");
-        return;
-      }
-      await continueAgentRun(apiBaseUrl, accessToken, run.id);
-      const nextResult = await askAgentQuestion(apiBaseUrl, accessToken, input);
-      setResult(nextResult);
+      const continuedRun = await continueAgentRun(apiBaseUrl, accessToken, run.id);
+      setRun(continuedRun);
       const nextRun = await refreshRun(run.id);
       if (nextRun && isTerminalRun(nextRun.status)) {
         removeDraft(activeDraftStore, memoryDraftStore, nextRun.requestId);

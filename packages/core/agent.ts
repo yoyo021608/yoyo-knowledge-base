@@ -12,7 +12,6 @@ export type RunStatus =
   | "failed";
 export type RunStep = "rewrite" | "retrieve" | "generate" | "persist_answer";
 export type EvidenceStatus = "sufficient" | "insufficient" | "failed";
-
 /** 一次提问的范围参数；身份只来自 accessToken，不允许调用方传 userId。 */
 export interface QuestionInput {
   sessionId: string;
@@ -26,6 +25,7 @@ export interface QuestionInput {
   userAnswer?: string;
 }
 
+/** 已持久化回答的引用快照类型，暂时保留供现有会话展示层使用。 */
 export interface AnswerCitation {
   documentId: string;
   documentVersionId: string;
@@ -48,6 +48,7 @@ export interface RunEvaluation {
   failureReason: string | null;
 }
 
+/** 兼容现有展示组件；异步提交接口不再直接返回该结构。 */
 export interface QuestionResult {
   runId: string;
   status: RunStatus;
@@ -123,17 +124,6 @@ async function request<T>(
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
-function citationOf(raw: Record<string, unknown>): AnswerCitation {
-  return {
-    documentId: String(raw.document_id),
-    documentVersionId: String(raw.document_version_id),
-    chunkId: String(raw.chunk_id),
-    titleSnapshot: String(raw.title_snapshot),
-    sourceUrl: (raw.source_url as string | null) ?? null,
-    quote: String(raw.quote),
-  };
-}
-
 function runOf(raw: Record<string, unknown>): AgentRun {
   return {
     id: String(raw.id),
@@ -164,7 +154,7 @@ export async function askAgentQuestion(
   baseUrl: string,
   accessToken: string,
   input: QuestionInput,
-): Promise<QuestionResult> {
+): Promise<AgentRun> {
   const raw = await request<Record<string, unknown>>(
     baseUrl,
     accessToken,
@@ -182,26 +172,7 @@ export async function askAgentQuestion(
       user_answer: input.userAnswer ?? null,
     },
   );
-  const answer = raw.answer as Record<string, unknown>;
-  const evaluation = raw.evaluation as Record<string, unknown>;
-  const citations = (answer.citations as Record<string, unknown>[] | undefined) ?? [];
-  return {
-    runId: String(raw.run_id),
-    status: raw.status as RunStatus,
-    messageId: (raw.message_id as string | null) ?? null,
-    answer: {
-      text: String(answer.text),
-      citations: citations.map(citationOf),
-      evidenceStatus: answer.evidence_status as EvidenceStatus,
-    },
-    evaluation: {
-      hitCount: Number(evaluation.hit_count),
-      citationCoverage: Number(evaluation.citation_coverage),
-      evidenceStatus: evaluation.evidence_status as EvidenceStatus,
-      failureReason: (evaluation.failure_reason as string | null) ?? null,
-    },
-    modeResult: (raw.mode_result as Record<string, unknown> | null) ?? null,
-  };
+  return runOf(raw);
 }
 
 export async function getAgentRun(
@@ -256,7 +227,7 @@ export async function cancelAgentRun(
   return runOf(raw);
 }
 
-/** 恢复只把 Run 置回 queued；视图随后应使用原 requestId 重新提交问题。 */
+/** 后端使用 Run 快照中的原始范围恢复执行，浏览器不再重传业务参数。 */
 export async function continueAgentRun(
   baseUrl: string,
   accessToken: string,

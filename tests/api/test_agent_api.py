@@ -74,14 +74,15 @@ def test_question_flow_saves_answer_and_reuses_request_id(tmp_path: Path) -> Non
     }
 
     first = client.post("/api/agent/questions", headers=headers, json=body)
-    assert first.status_code == 200
-    assert first.json()["status"] == "completed"
-    assert first.json()["answer"]["evidence_status"] == "sufficient"
-    assert first.json()["answer"]["citations"][0]["chunk_id"] == "chunk-1"
+    assert first.status_code == 202
+    assert first.json()["status"] == "queued"
+    completed = client.get(f"/api/agent/runs/{first.json()['id']}", headers=headers)
+    assert completed.status_code == 200
+    assert completed.json()["status"] == "completed"
 
     repeated = client.post("/api/agent/questions", headers=headers, json=body)
-    assert repeated.status_code == 200
-    assert repeated.json()["run_id"] == first.json()["run_id"]
+    assert repeated.status_code == 202
+    assert repeated.json()["id"] == first.json()["id"]
     messages = sessions.history.list(session.id, profile.id)
     assert [message.role for message in messages] == ["user", "assistant"]
     assert messages[-1].citations[0].quote == "Python 是一种编程语言。"
