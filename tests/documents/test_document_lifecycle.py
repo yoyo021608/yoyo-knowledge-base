@@ -39,6 +39,14 @@ class StubContentLoader:
         return ExtractedContent(name, "文件正文")
 
 
+class FailingEmbeddingClient:
+    """模拟外部 Embedding 故障，验证版本不会因索引失败而丢失。"""
+
+    def embed(self, text: str) -> tuple[float, ...]:
+        del text
+        raise RuntimeError("embedding unavailable")
+
+
 def test_import_update_search_archive_restore_and_export(
     document_context: tuple[Database, DocumentsModule],
 ) -> None:
@@ -202,3 +210,37 @@ def test_web_import_can_fetch_content_from_url(
     assert detail.version.source.source_url == "https://example.com/knowledge"
     assert detail.version.source.content.startswith("- [[RAG]]")
     module.editor.delete(result.document_id, "user-a")
+
+
+def test_update_keeps_failed_version_for_explicit_index_retry(
+    document_context: tuple[Database, DocumentsModule], tmp_path: Path
+) -> None:
+    """编辑已提交后索引失败应返回 failed 版本，不能让用户误以为内容未保存。"""
+    database, module = document_context
+    imported = module.single_importer.import_one(
+        SingleImportInput(
+            user_id="user-a",
+            title="原始版本",
+            content="原始内容可以正常建立索引。",
+            source_type="note",
+        )
+    )
+    failing_module = DocumentsModule.create(
+        database,
+        LocalFileStorage(tmp_path / "failed-update-uploads"),
+        embeddings=FailingEmbeddingClient(),
+    )
+
+    updated = failing_module.editor.update(
+        imported.document_id,
+        "user-a",
+        DocumentUpdateInput(title="已保存的新版本", content="等待重新建立索引。"),
+    )
+
+    assert updated.version == 2
+    assert updated.index_status == "failed"
+    assert "embedding unavailable" in (updated.index_error or "")
+    assert (
+        failing_module.editor.get(imported.document_id, "user-a").version.id
+        == updated.id
+    )
