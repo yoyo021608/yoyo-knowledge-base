@@ -192,7 +192,7 @@ export function DocumentImportPanel({
 
       <details>
         <summary>批量录入</summary>
-        <p className="muted">每段第一行作为标题，段与段之间单独一行填写 ---。</p>
+        <p className="muted">每段第一行作为标题，段与段之间用单独一行的 --- 分隔</p>
         <textarea rows={8} value={batchText} onChange={(event) => setBatchText(event.target.value)} />
         <div className="account-actions">
           <Button disabled={busy} onClick={() => void submitBatch()}>开始批量录入</Button>

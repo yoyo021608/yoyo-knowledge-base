@@ -6,7 +6,8 @@
   "main": "./index.ts",
   "types": "./index.ts",
   "exports": {
-    ".": "./index.ts"
+    ".": "./index.ts",
+    "./styles.css": "./styles.css"
   },
   "scripts": {
     "lint": "tsc --noEmit"

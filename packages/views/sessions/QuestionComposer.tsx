@@ -19,6 +19,7 @@ interface Props {
   topics: Topic[];
   tags: Tag[];
   disabled: boolean;
+  initialQuestion?: { mode: AgentMode; question: string } | null;
   onAsk: (input: QuestionInput) => Promise<void>;
 }
 
@@ -35,10 +36,11 @@ export function QuestionComposer({
   topics,
   tags,
   disabled,
+  initialQuestion,
   onAsk,
 }: Props) {
-  const [question, setQuestion] = useState("");
-  const [mode, setMode] = useState<AgentMode>("quick");
+  const [question, setQuestion] = useState(initialQuestion?.question ?? "");
+  const [mode, setMode] = useState<AgentMode>(initialQuestion?.mode ?? "quick");
   const [topicId, setTopicId] = useState("");
   const [tag, setTag] = useState("");
   const [documentIds, setDocumentIds] = useState<string[]>([]);

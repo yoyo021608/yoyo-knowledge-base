@@ -73,7 +73,7 @@ function SavedTaskContent({ task }: { task: TaskResult }) {
       {main && <p>{main}</p>}
       {subquestions.length > 0 && <p>研究子问题：{subquestions.join("；")}</p>}
       {unresolved.length > 0 && <p>仍缺少证据：{unresolved.join("；")}</p>}
-      {comparedCount !== null && <p>已对齐 {comparedCount} 个文档版本的证据。</p>}
+      {comparedCount !== null && <p>已对齐 {comparedCount} 个文档版本的依据</p>}
     </div>
   );
 }
@@ -131,7 +131,7 @@ export function ConversationHistory({
   return (
     <Card>
       <h2>会话历史</h2>
-      {messages.length === 0 && <p className="muted">还没有消息，可以从下方发起第一次提问。</p>}
+      {messages.length === 0 && <p className="muted">从下方写下问题，让第一次探索从这里开始</p>}
       <ol className="message-list">
         {messages.map((message) => (
           <li className={`message message-${message.role}`} key={message.id}>

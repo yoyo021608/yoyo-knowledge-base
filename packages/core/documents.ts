@@ -1,4 +1,5 @@
 import { ApiError } from "./auth";
+import { reportUnauthorized } from "./auth-events";
 import { buildApiUrl } from "./client";
 
 export type SourceType = "note" | "markdown" | "web" | "file";
@@ -197,6 +198,7 @@ async function request<T>(
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!response.ok) {
+    if (response.status === 401) reportUnauthorized();
     let message = `请求失败：HTTP ${response.status}`;
     try {
       const error = (await response.json()) as ErrorWireResponse;
@@ -741,7 +743,10 @@ export async function downloadDocuments(
   const response = await fetch(buildApiUrl(baseUrl, `/api/documents/export?${query.toString()}`), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
-  if (!response.ok) throw new ApiError(`导出失败：HTTP ${response.status}`, response.status);
+  if (!response.ok) {
+    if (response.status === 401) reportUnauthorized();
+    throw new ApiError(`导出失败：HTTP ${response.status}`, response.status);
+  }
   return {
     content: new Uint8Array(await response.arrayBuffer()),
     mediaType: response.headers.get("Content-Type") ?? "application/octet-stream",
