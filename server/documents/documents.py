@@ -301,9 +301,14 @@ class DocumentEditor:
             document.updated_at = now
             set_document_tags(session, document.id, user_id, update_input.tags)
 
-        self._indexer.refresh(
-            RefreshRequest(document_id=document_id, version_id=version_id)
-        )
+        try:
+            self._indexer.refresh(
+                RefreshRequest(document_id=document_id, version_id=version_id)
+            )
+        except Exception:
+            # 新版本和 queued 任务已经提交；索引器会把当前版本标记为 failed。
+            # 保留版本并返回失败状态，让用户可以从同一版本显式重试索引。
+            pass
         return self.get_version(document_id, version_id, user_id)
 
     def get_version(

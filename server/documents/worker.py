@@ -1,13 +1,16 @@
 """持久化索引任务的后台恢复扫描。"""
 
 import asyncio
+import logging
 from contextlib import suppress
 
 from server.documents.indexing import DocumentIndexer
 
+_LOGGER = logging.getLogger(__name__)
+
 
 class DocumentIndexWorker:
-    """周期处理 queued/failed 任务，进程重启后仍以数据库状态为准。"""
+    """周期处理 queued 任务，进程重启后仍以数据库状态为准。"""
 
     def __init__(self, indexer: DocumentIndexer, interval_seconds: float = 2.0) -> None:
         self._indexer = indexer
@@ -35,7 +38,7 @@ class DocumentIndexWorker:
                 await asyncio.to_thread(self._indexer.refresh_queued)
             except Exception:
                 # 单轮基础设施故障不终止恢复循环；任务事实仍保存在数据库。
-                pass
+                _LOGGER.exception("documents.index_worker.scan_failed")
             try:
                 await asyncio.wait_for(
                     self._stopped.wait(), timeout=self._interval_seconds

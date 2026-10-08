@@ -32,7 +32,8 @@ def _public_url(url: str) -> None:
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise DocumentContentError("网页地址必须是有效的 HTTP(S) 地址")
     try:
-        addresses = socket.getaddrinfo(parsed.hostname, parsed.port or 443)
+        default_port = 443 if parsed.scheme == "https" else 80
+        addresses = socket.getaddrinfo(parsed.hostname, parsed.port or default_port)
     except OSError as exc:
         raise DocumentContentError("网页地址无法解析") from exc
     for address in addresses:
