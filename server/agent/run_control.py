@@ -27,6 +27,7 @@ from server.agent.types import (
     ContextBudget,
     ContextInput,
     EvidenceStatus,
+    ExecutionOptions,
     MessageContext,
     Run,
     RunBundle,
@@ -98,6 +99,22 @@ def _context(data: dict[str, Any]) -> ContextInput:
     )
 
 
+def _options(data: dict[str, Any] | None) -> ExecutionOptions:
+    if data is None:
+        return ExecutionOptions()
+    return ExecutionOptions(
+        topic_id=cast(str | None, data.get("topic_id")),
+        tag=cast(str | None, data.get("tag")),
+        document_ids=tuple(cast(list[str], data.get("document_ids", []))),
+        version_ids=tuple(cast(list[str], data.get("version_ids", []))),
+        user_answer=cast(str | None, data.get("user_answer")),
+    )
+
+
+def _stored_input(context: ContextInput, options: ExecutionOptions) -> str:
+    return _json({"context": asdict(context), "options": asdict(options)})
+
+
 def _answer(raw: str | None) -> AnswerResult | None:
     if raw is None:
         return None
@@ -120,10 +137,14 @@ def _answer(raw: str | None) -> AnswerResult | None:
 
 
 def _snapshot_view(value: AgentRunSnapshot) -> RunSnapshot:
+    stored = cast(dict[str, Any], json.loads(value.input_json))
+    # 兼容 0005 迁移后已存在、尚未采用 options 包装的运行快照。
+    context_data = cast(dict[str, Any], stored.get("context", stored))
+    options_data = cast(dict[str, Any] | None, stored.get("options"))
     return RunSnapshot(
         run_id=value.run_id,
         input_message_id=value.input_message_id,
-        input=_context(cast(dict[str, Any], json.loads(value.input_json))),
+        input=_context(context_data),
         step=cast(RunStep, value.step),
         queries=tuple(cast(list[str], json.loads(value.queries_json))),
         selected_sources=tuple(
@@ -141,6 +162,7 @@ def _snapshot_view(value: AgentRunSnapshot) -> RunSnapshot:
         chat_model=value.chat_model,
         attempt=value.attempt,
         revision=value.revision,
+        options=_options(options_data),
     )
 
 
@@ -180,6 +202,7 @@ def _existing_bundle(
     request_id: str,
     digest: str,
     mode: AgentMode,
+    options: ExecutionOptions,
 ) -> RunBundle | None:
     """读取幂等请求；相同键只能对应同一问题和模式。"""
     existing = db.scalar(
@@ -196,7 +219,10 @@ def _existing_bundle(
     snapshot = db.get(AgentRunSnapshot, existing.id)
     if snapshot is None:
         raise AgentRunConflict("运行快照缺失")
-    return RunBundle(_run_view(existing), _snapshot_view(snapshot))
+    bundle = RunBundle(_run_view(existing), _snapshot_view(snapshot))
+    if bundle.snapshot.options != options:
+        raise AgentRunConflict("相同 request_id 对应的检索范围或学习答案不一致")
+    return bundle
 
 
 class RunControl:
@@ -213,7 +239,9 @@ class RunControl:
         request_id: str,
         mode: AgentMode,
         input_value: ContextInput,
+        options: ExecutionOptions | None = None,
     ) -> RunBundle:
+        execution_options = options or ExecutionOptions()
         if mode not in _MODES or not all(
             value.strip()
             for value in (session_id, user_id, request_id, input_value.question)
@@ -230,6 +258,7 @@ class RunControl:
                     request_id=request_key,
                     digest=digest,
                     mode=mode,
+                    options=execution_options,
                 )
                 if existing is not None:
                     return existing
@@ -249,7 +278,7 @@ class RunControl:
                 db.flush()
                 snapshot = AgentRunSnapshot(
                     run_id=run.id,
-                    input_json=_json(asdict(input_value)),
+                    input_json=_stored_input(input_value, execution_options),
                     step="rewrite",
                     queries_json="[]",
                     selected_sources_json="[]",
@@ -269,6 +298,7 @@ class RunControl:
                     request_id=request_key,
                     digest=digest,
                     mode=mode,
+                    options=execution_options,
                 )
                 if existing is None:
                     raise
@@ -330,7 +360,7 @@ class RunControl:
                 )
                 .values(
                     input_message_id=snapshot.input_message_id,
-                    input_json=_json(asdict(snapshot.input)),
+                    input_json=_stored_input(snapshot.input, snapshot.options),
                     step=snapshot.step,
                     queries_json=_json(snapshot.queries),
                     selected_sources_json=_json(
@@ -384,7 +414,7 @@ class RunControl:
             run = db.scalar(
                 select(AgentRun).where(AgentRun.id == run_id).with_for_update()
             )
-            if run is not None and run.status == "running":
+            if run is not None and run.status in {"queued", "running"}:
                 run.status = "paused"
                 _event(db, run, "run.paused", {"reason": "executor_interrupted"})
 
@@ -504,9 +534,11 @@ class RunControl:
             return tuple(_run_view(value) for value in values)
 
     def recover_interrupted(self, limit: int = 1000) -> int:
-        """启动时只暂停失去执行者的 running Run，等待客户端显式继续。"""
+        """启动时暂停失去执行者的 queued/running Run，等待客户端显式继续。"""
         values = self.list_recoverable(limit)
-        interrupted = [value for value in values if value.status == "running"]
+        interrupted = [
+            value for value in values if value.status in {"queued", "running"}
+        ]
         for value in interrupted:
             self.pause_interrupted(value.id)
         return len(interrupted)

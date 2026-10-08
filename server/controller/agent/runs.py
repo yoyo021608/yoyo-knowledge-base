@@ -3,11 +3,14 @@
 from dataclasses import asdict
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 
 from server.agent.errors import AgentError
 from server.agent.module import AgentModule
-from server.controller.agent.coordination import cancel_and_release
+from server.controller.agent.coordination import (
+    cancel_and_release,
+    execute_prepared_in_background,
+)
 from server.controller.agent.schemas import EventResponse, RunResponse
 from server.controller.agent.shared import agent_error, get_agent, run_response
 from server.controller.sessions.shared import get_sessions, session_error
@@ -65,12 +68,24 @@ def cancel_run(
 @router.post("/{run_id}/continue", response_model=RunResponse)
 def continue_run(
     run_id: str,
+    background_tasks: BackgroundTasks,
     agent: Annotated[AgentModule, Depends(get_agent)],
+    sessions: Annotated[SessionsModule, Depends(get_sessions)],
     identity: Annotated[IdentityContext, Depends(require_identity)],
 ) -> RunResponse:
-    """恢复为 queued；客户端以原 request_id 重发问题后复用快照继续。"""
+    """恢复为 queued，并使用服务端保存的原始参数重新交给执行器。"""
     try:
         agent.runs.continue_run(run_id, identity.user_id)
-        return run_response(agent.runs.get(run_id, identity.user_id))
+        bundle = agent.runs.get(run_id, identity.user_id)
+        background_tasks.add_task(
+            execute_prepared_in_background,
+            agent,
+            sessions,
+            identity.user_id,
+            run_id,
+        )
+        return run_response(bundle)
     except AgentError as exc:
         raise agent_error(exc) from exc
+    except SessionsError as exc:
+        raise session_error(exc) from exc

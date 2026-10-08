@@ -29,37 +29,6 @@ class QuestionRequest(BaseModel):
         return self
 
 
-class CitationResponse(BaseModel):
-    document_id: str
-    document_version_id: str
-    chunk_id: str
-    title_snapshot: str
-    source_url: str | None
-    quote: str
-
-
-class AnswerResponse(BaseModel):
-    text: str
-    citations: list[CitationResponse]
-    evidence_status: str
-
-
-class EvaluationResponse(BaseModel):
-    hit_count: int
-    citation_coverage: float
-    evidence_status: str
-    failure_reason: str | None
-
-
-class QuestionResponse(BaseModel):
-    run_id: str
-    status: str
-    message_id: str | None
-    answer: AnswerResponse
-    evaluation: EvaluationResponse
-    mode_result: dict[str, object] | None
-
-
 class RunResponse(BaseModel):
     id: str
     session_id: str

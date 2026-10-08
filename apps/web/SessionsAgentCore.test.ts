@@ -80,30 +80,17 @@ describe("agent core 接口", () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
-          run_id: "run-1",
+          id: "run-1",
+          session_id: "session-1",
+          request_id: "request-1",
+          mode: "quick",
           status: "completed",
-          message_id: "message-1",
-          answer: {
-            text: "回答",
-            citations: [
-              {
-                document_id: "document-1",
-                document_version_id: "version-1",
-                chunk_id: "chunk-1",
-                title_snapshot: "标题",
-                source_url: null,
-                quote: "证据",
-              },
-            ],
-            evidence_status: "sufficient",
-          },
-          evaluation: {
-            hit_count: 1,
-            citation_coverage: 1,
-            evidence_status: "sufficient",
-            failure_reason: null,
-          },
-          mode_result: null,
+          last_event_seq: 4,
+          failure_reason: null,
+          step: "persist_answer",
+          revision: 3,
+          created_at: "2026-10-04T10:00:00Z",
+          updated_at: "2026-10-04T10:00:01Z",
         }),
         { status: 200 },
       ),
@@ -118,7 +105,8 @@ describe("agent core 接口", () => {
       documentIds: ["document-1"],
     });
 
-    expect(result.answer.citations[0]?.documentId).toBe("document-1");
+    expect(result.id).toBe("run-1");
+    expect(result.step).toBe("persist_answer");
     expect(fetchMock).toHaveBeenCalledWith(
       "http://localhost:8000/api/agent/questions",
       expect.objectContaining({

@@ -198,6 +198,8 @@ class RunSnapshot:
     chat_model: str
     attempt: int
     revision: int
+    # 恢复执行必须使用最初的检索范围，不能依赖浏览器重新提交参数。
+    options: ExecutionOptions = ExecutionOptions()
 
 
 @dataclass(frozen=True, slots=True)
