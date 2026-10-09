@@ -108,7 +108,6 @@ function Application() {
                   status={auth.status}
                 >
                   <WorkspaceView
-                    apiBaseUrl={apiBaseUrl}
                     LinkComponent={RouteLink}
                     onStartResearch={(draft) => {
                       try {

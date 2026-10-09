@@ -1,12 +1,10 @@
 import { useState } from "react";
 
-import { buildApiUrl, fetchHealth, type AgentMode } from "@yoyo/core";
-import { Button } from "@yoyo/ui";
+import { type AgentMode } from "@yoyo/core";
 
 import type { ViewLinkComponent } from "./navigation";
 
 interface WorkspaceViewProps {
-  apiBaseUrl: string;
   LinkComponent: ViewLinkComponent;
   onStartResearch: (draft: WorkspaceQuestionDraft) => void;
 }
@@ -30,9 +28,8 @@ const promptSuggestions: Record<AgentMode, string[]> = {
   study: ["根据资料生成学习路径", "把知识点转换成练习题"],
 };
 
-/** 首页只装配真实模块入口和服务状态，不越过业务模块读取内部数据。 */
-export function WorkspaceView({ apiBaseUrl, LinkComponent: Link, onStartResearch }: WorkspaceViewProps) {
-  const [status, setStatus] = useState("未检查");
+/** 工作台只装配真实模块入口与提问草稿，不越过业务模块读取内部数据。 */
+export function WorkspaceView({ LinkComponent: Link, onStartResearch }: WorkspaceViewProps) {
   const [mode, setMode] = useState<AgentMode>("research");
   const [prompt, setPrompt] = useState("");
   const activeMode = researchModes.find((item) => item.value === mode) ?? researchModes[0];
@@ -41,15 +38,6 @@ export function WorkspaceView({ apiBaseUrl, LinkComponent: Link, onStartResearch
     const question = prompt.trim();
     if (!question) return;
     onStartResearch({ mode, question });
-  }
-
-  async function handleCheck(): Promise<void> {
-    try {
-      const result = await fetchHealth(apiBaseUrl);
-      setStatus(result.status);
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "检查失败");
-    }
   }
 
   return (
@@ -176,10 +164,6 @@ export function WorkspaceView({ apiBaseUrl, LinkComponent: Link, onStartResearch
           <div className="evidence-copy">
             <strong>每个重要观点都连接着参考内容</strong>
             <p>沿着答案回到原文，看见理解如何一步步形成</p>
-          </div>
-          <div className="service-check">
-            <p><small>后端服务</small><strong>{status}</strong><span>{buildApiUrl(apiBaseUrl, "/health")}</span></p>
-            <Button onClick={() => void handleCheck()}>检查连接</Button>
           </div>
         </article>
       </section>

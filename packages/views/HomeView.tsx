@@ -29,10 +29,10 @@ const modules = [
   },
   {
     number: "04",
-    name: "RELIABLE FOUNDATION",
-    title: "让复杂能力安静地发生",
-    description: "稳定承载内容处理、知识检索与研究运行，让技术退到自然体验之后",
-    to: "/workspace",
+    name: "TRACEABLE ANSWERS",
+    title: "让每一个结论都循迹而归",
+    description: "让回答始终连接具体版本与原文片段，即使内容后来变化，也能看见理解从何而来",
+    to: "/sessions",
   },
 ];
 
@@ -45,8 +45,8 @@ export function HomeView({ isAuthenticated = false, LinkComponent: Link }: HomeV
           <p className="project-kicker"><span aria-hidden="true" /> A SPACE FOR CONNECTED KNOWLEDGE</p>
           <h1 id="project-title">一个空间<span>让知识连接</span><span>让思考生长</span></h1>
           <p className="project-lead">
-            收拢散落的阅读与思绪，让每一份积累彼此相遇
-            当新的问题出现，知识循着来处汇聚，生长为清晰而可信的答案
+            收拢散落的内容 连接每一份积累<br />
+            让答案有来处 让探索有延续
           </p>
           <div className="project-actions">
             <Link className="project-primary" to="/workspace">{isAuthenticated ? "进入知识工作台" : "开始建立知识空间"} <span aria-hidden="true">→</span></Link>
@@ -111,7 +111,7 @@ export function HomeView({ isAuthenticated = false, LinkComponent: Link }: HomeV
           <i aria-hidden="true">→</i>
           <article><span>EXPLORE</span><b>围绕问题唤醒知识</b><p>让真正相关的内容参与此刻的思考</p></article>
           <i aria-hidden="true">→</i>
-          <article><span>GROW</span><b>让新的理解继续生长</b><p>把答案、出处与过程重新沉淀为知识</p></article>
+          <article><span>GROW</span><b>留住答案与探索的脉络</b><p>让出处与过程成为下一次思考的上下文</p></article>
         </div>
       </section>
 
