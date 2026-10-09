@@ -34,3 +34,5 @@ jobs:
       - run: pnpm lint:web
       - run: pnpm test:web
       - run: pnpm build:web
+      - run: pnpm --filter @yoyo/web exec playwright install --with-deps chromium
+      - run: pnpm test:e2e

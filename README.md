@@ -80,6 +80,7 @@ Python 虚拟环境统一位于仓库根目录的 `.venv`。
 ~~~bash
 pnpm test
 pnpm lint
+pnpm test:e2e
 ~~~
 
 也可以按技术栈分别检查：
@@ -96,6 +97,8 @@ pnpm lint
 ~~~
 
 后端接口测试使用 pytest 和 httpx；前端组件测试使用 Vitest，关键用户流程采用 Playwright 验证。新增功能时，先补对应模块的单元测试或接口测试，提交 PR 前须通过相关检查。
+
+Playwright 测试会自动启动 Vite，并在浏览器中验证注册、登录、资料录入、会话问答、版本引用和刷新恢复。浏览器层使用可控 HTTP 边界，后端跨模块协作由 `tests/e2e/test_mvp_flow.py` 验证。
 
 ## 文档入口
 
