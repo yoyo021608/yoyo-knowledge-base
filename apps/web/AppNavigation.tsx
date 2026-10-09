@@ -95,11 +95,11 @@ export function AppNavigation({
           >
             <span aria-hidden="true">{collapsed ? "›" : "‹"}</span>
           </button>
-          <Link className="app-brand" to="/" aria-label="Yoyo Knowledge 首页">
-            <span className="app-brand-mark" aria-hidden="true">Y</span>
+          <Link className="app-brand" to="/" aria-label="个人知识空间首页">
+            <span className="app-brand-mark" aria-hidden="true">知</span>
             <span className="app-brand-copy">
-              <strong>Yoyo Knowledge</strong>
-              <small>个人知识工作台</small>
+              <strong>个人知识空间</strong>
+              <small>让知识连接 让思考生长</small>
             </span>
           </Link>
           <button
