@@ -13,6 +13,7 @@
     "test:api": "python -m pytest",
     "db:migrate": "python -m alembic upgrade head",
     "test:web": "pnpm --filter @yoyo/web test",
+    "test:e2e": "pnpm --filter @yoyo/web test:e2e",
     "lint": "pnpm lint:api && pnpm lint:web",
     "lint:api": "python -m ruff check apps packages server tests && python -m black --check apps packages server tests && python -m mypy server",
     "lint:web": "pnpm --filter @yoyo/web lint"
