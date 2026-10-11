@@ -1,13 +1,48 @@
-"""持久化索引任务的后台恢复扫描。"""
+"""documents 的批量录入、索引和来源复查后台任务。"""
 
 import asyncio
 import logging
 from contextlib import suppress
 
+from server.documents.importing import BatchImporter
 from server.documents.indexing import DocumentIndexer
 from server.documents.source_changes import SourceChangeManager
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class BatchImportWorker:
+    """领取 documents 的持久化批次，重启后续跑尚未完成的条目。"""
+
+    def __init__(self, importer: BatchImporter, interval_seconds: float = 2.0) -> None:
+        self._importer = importer
+        self._interval_seconds = interval_seconds
+        self._stopped = asyncio.Event()
+        self._task: asyncio.Task[None] | None = None
+
+    def start(self) -> None:
+        if self._task is None:
+            self._task = asyncio.create_task(self._run(), name="document-import-worker")
+
+    async def close(self) -> None:
+        self._stopped.set()
+        if self._task is not None:
+            with suppress(asyncio.CancelledError):
+                await self._task
+            self._task = None
+
+    async def _run(self) -> None:
+        while not self._stopped.is_set():
+            try:
+                await asyncio.to_thread(self._importer.run_queued)
+            except Exception:
+                _LOGGER.exception("documents.import_worker.scan_failed")
+            try:
+                await asyncio.wait_for(
+                    self._stopped.wait(), timeout=self._interval_seconds
+                )
+            except TimeoutError:
+                continue
 
 
 class DocumentIndexWorker:

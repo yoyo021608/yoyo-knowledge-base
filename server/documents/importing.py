@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from server.documents.documents import (
     clean_content,
@@ -121,6 +122,14 @@ class SingleImporter:
 
     def import_one(self, import_input: SingleImportInput) -> ImportResult:
         """在同一事务中创建文档、版本、来源、组织关系和索引任务。"""
+        with self._database.transaction() as session:
+            result = self._import_in_transaction(session, import_input)
+        return result
+
+    def _import_in_transaction(
+        self, session: Session, import_input: SingleImportInput
+    ) -> ImportResult:
+        """供批量任务复用同一事务，条目成功与文档创建一起提交。"""
         title = clean_title(import_input.title)
         content = clean_content(import_input.content)
         source_type = _validate_source(
@@ -129,58 +138,55 @@ class SingleImporter:
         document_id = str(uuid4())
         version_id = str(uuid4())
         now = datetime.now(UTC)
-        with self._database.transaction() as session:
-            require_topic(session, import_input.topic_id, import_input.user_id)
-            document = Document(
-                id=document_id,
+        require_topic(session, import_input.topic_id, import_input.user_id)
+        document = Document(
+            id=document_id,
+            user_id=import_input.user_id,
+            topic_id=import_input.topic_id,
+            title=title,
+            status="active",
+            is_favorite=False,
+            current_version=1,
+            current_version_id=version_id,
+            index_status="queued",
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(document)
+        session.flush()
+        session.add(
+            DocumentVersion(
+                id=version_id,
+                document_id=document_id,
                 user_id=import_input.user_id,
-                topic_id=import_input.topic_id,
-                title=title,
-                status="active",
-                is_favorite=False,
-                current_version=1,
-                current_version_id=version_id,
+                version=1,
+                title_snapshot=title,
+                content_snapshot=content,
                 index_status="queued",
-                created_at=now,
-                updated_at=now,
+                index_updated_at=now,
             )
-            session.add(document)
-            session.flush()
-            session.add(
-                DocumentVersion(
-                    id=version_id,
-                    document_id=document_id,
-                    user_id=import_input.user_id,
-                    version=1,
-                    title_snapshot=title,
-                    content_snapshot=content,
-                    index_status="queued",
-                    index_updated_at=now,
-                )
-            )
-            # ORM 未声明跨聚合关系，先落版本以满足来源和任务的数据库外键顺序。
-            session.flush()
-            DocumentIndexer.queue_in_transaction(
-                session, document_id, version_id, import_input.user_id
-            )
-            SourceManager.capture_in_transaction(
-                session,
-                SourceInput(
-                    user_id=import_input.user_id,
-                    document_id=document_id,
-                    version_id=version_id,
-                    content=content,
-                    source_type=source_type,
-                    source_url=import_input.source_url,
-                    title=import_input.source_title or title,
-                    file_object_id=import_input.file_object_id,
-                ),
-            )
-            set_document_tags(
-                session, document_id, import_input.user_id, import_input.tags
-            )
+        )
+        # ORM 未声明跨聚合关系，先落版本以满足来源和任务的数据库外键顺序。
+        session.flush()
+        DocumentIndexer.queue_in_transaction(
+            session, document_id, version_id, import_input.user_id
+        )
+        SourceManager.capture_in_transaction(
+            session,
+            SourceInput(
+                user_id=import_input.user_id,
+                document_id=document_id,
+                version_id=version_id,
+                content=content,
+                source_type=source_type,
+                source_url=import_input.source_url,
+                title=import_input.source_title or title,
+                file_object_id=import_input.file_object_id,
+            ),
+        )
+        set_document_tags(session, document_id, import_input.user_id, import_input.tags)
 
-        # HTTP 只确认资料和任务已经持久化；后台 Worker 负责执行耗时索引。
+        # 调用方提交事务后，后台 Worker 才执行耗时索引。
         return ImportResult(
             document_id=document_id,
             version_id=version_id,
@@ -235,7 +241,7 @@ class BatchImporter:
         self._single_importer = single_importer
 
     def create_job(self, batch_input: BatchImportInput) -> BatchJobResult:
-        """先持久化整批输入，再逐条执行，保证进度可恢复和可查看。"""
+        """持久化整批输入；Worker 逐条执行并保存可恢复进度。"""
         if not batch_input.items:
             raise InvalidDocumentInput("批量录入至少需要一条资料")
         if len(batch_input.items) > 100:
@@ -276,7 +282,6 @@ class BatchImporter:
                         status="queued",
                     )
                 )
-        self._run_pending(job_id, batch_input.user_id, include_failed=False)
         return self.get_job(job_id, batch_input.user_id)
 
     def get_job(self, job_id: str, user_id: str) -> BatchJobResult:
@@ -298,15 +303,57 @@ class BatchImporter:
                 job=_job_view(job), items=tuple(_item_view(item) for item in items)
             )
 
+    def list_jobs(self, user_id: str, *, limit: int = 10) -> tuple[BatchJobResult, ...]:
+        """仅列出当前用户最近的批次，供页面刷新后找回处理进度。"""
+        with self._database.session() as session:
+            job_ids = session.scalars(
+                select(ImportJob.id)
+                .where(ImportJob.user_id == user_id)
+                .order_by(ImportJob.created_at.desc(), ImportJob.id.desc())
+                .limit(limit)
+            ).all()
+        return tuple(self.get_job(job_id, user_id) for job_id in job_ids)
+
     def retry_failed(self, job_id: str, user_id: str) -> BatchJobResult:
-        """只重新处理 failed 条目，已成功条目的文档不会重复创建。"""
-        self.get_job(job_id, user_id)
-        self._run_pending(job_id, user_id, include_failed=True)
+        """只重新排队失败条目；已成功条目不重复创建。"""
+        with self._database.transaction() as session:
+            job = session.scalar(
+                select(ImportJob).where(
+                    ImportJob.id == job_id, ImportJob.user_id == user_id
+                )
+            )
+            if job is None:
+                raise ImportJobNotFound("批量录入任务不存在")
+            failed = session.scalars(
+                select(ImportItem).where(
+                    ImportItem.job_id == job_id, ImportItem.status == "failed"
+                )
+            ).all()
+            if failed:
+                for item in failed:
+                    item.status = "queued"
+                    item.error_message = None
+                    item.updated_at = datetime.now(UTC)
+                job.status = "queued"
+                job.failure_count = 0
+                job.updated_at = datetime.now(UTC)
         return self.get_job(job_id, user_id)
 
-    def _run_pending(self, job_id: str, user_id: str, *, include_failed: bool) -> None:
-        """逐条运行可处理条目，每条使用自己的事务和错误结果。"""
-        allowed_statuses = ("queued", "failed") if include_failed else ("queued",)
+    def run_queued(self, *, limit: int = 10) -> int:
+        """Worker 扫描持久化批次；running 批次供重启后续跑。"""
+        with self._database.session() as session:
+            jobs = session.execute(
+                select(ImportJob.id, ImportJob.user_id)
+                .where(ImportJob.status.in_(("queued", "running")))
+                .order_by(ImportJob.created_at)
+                .limit(limit)
+            ).all()
+        for job_id, user_id in jobs:
+            self._run_pending(job_id, user_id)
+        return len(jobs)
+
+    def _run_pending(self, job_id: str, user_id: str) -> None:
+        """逐条执行；成功条目与创建的文档在同一事务提交。"""
         with self._database.transaction() as session:
             job = session.scalar(
                 select(ImportJob).where(
@@ -322,7 +369,7 @@ class BatchImporter:
                     select(ImportItem.id)
                     .where(
                         ImportItem.job_id == job_id,
-                        ImportItem.status.in_(allowed_statuses),
+                        ImportItem.status == "queued",
                     )
                     .order_by(ImportItem.input_index)
                 ).all()
@@ -330,32 +377,48 @@ class BatchImporter:
 
         for item_id in item_ids:
             self._run_item(item_id, user_id)
-        self._recount(job_id, user_id)
+            self._recount(job_id, user_id)
+        if not item_ids:
+            self._recount(job_id, user_id)
 
     def _run_item(self, item_id: str, user_id: str) -> None:
-        with self._database.session() as session:
-            item = session.scalar(
-                select(ImportItem).where(
-                    ImportItem.id == item_id, ImportItem.user_id == user_id
-                )
-            )
-            if item is None or item.status == "success":
-                return
-            raw = cast(dict[str, Any], json.loads(item.input_json))
         try:
-            result = self._single_importer.import_one(
-                SingleImportInput(
-                    user_id=user_id,
-                    title=str(raw["title"]),
-                    content=str(raw["content"]),
-                    source_type=cast(SourceType, raw["source_type"]),
-                    source_url=cast(str | None, raw.get("source_url")),
-                    source_title=cast(str | None, raw.get("source_title")),
-                    topic_id=cast(str | None, raw.get("topic_id")),
-                    tags=tuple(str(value) for value in raw.get("tags", [])),
-                    file_object_id=cast(str | None, raw.get("file_object_id")),
+            with self._database.transaction() as session:
+                item = session.scalar(
+                    select(ImportItem)
+                    .where(ImportItem.id == item_id, ImportItem.user_id == user_id)
+                    .with_for_update()
                 )
-            )
+                if item is None or item.status != "queued":
+                    return
+                raw = cast(dict[str, Any], json.loads(item.input_json))
+                result = self._single_importer._import_in_transaction(
+                    session,
+                    SingleImportInput(
+                        user_id=user_id,
+                        title=str(raw["title"]),
+                        content=str(raw["content"]),
+                        source_type=cast(SourceType, raw["source_type"]),
+                        source_url=cast(str | None, raw.get("source_url")),
+                        source_title=cast(str | None, raw.get("source_title")),
+                        topic_id=cast(str | None, raw.get("topic_id")),
+                        tags=tuple(str(value) for value in raw.get("tags", [])),
+                        file_object_id=cast(str | None, raw.get("file_object_id")),
+                    ),
+                )
+                item.status = "success"
+                item.document_id = result.document_id
+                item.error_message = None
+                # 成功后正文只保留在版本和来源快照中。
+                item.input_json = json.dumps(
+                    {
+                        "title": raw["title"],
+                        "source_type": raw["source_type"],
+                        "content_removed_after_success": True,
+                    },
+                    ensure_ascii=False,
+                )
+                item.updated_at = datetime.now(UTC)
         except Exception as exc:
             with self._database.transaction() as session:
                 failed = session.get(ImportItem, item_id)
@@ -365,22 +428,6 @@ class BatchImporter:
                     failed.error_message = str(exc)[:1000]
                     failed.updated_at = datetime.now(UTC)
             return
-        with self._database.transaction() as session:
-            succeeded = session.get(ImportItem, item_id)
-            if succeeded is not None:
-                succeeded.status = "success"
-                succeeded.document_id = result.document_id
-                succeeded.error_message = None
-                # 成功后正文只保留在版本和来源快照中，批次表不再复制敏感正文。
-                succeeded.input_json = json.dumps(
-                    {
-                        "title": raw["title"],
-                        "source_type": raw["source_type"],
-                        "content_removed_after_success": True,
-                    },
-                    ensure_ascii=False,
-                )
-                succeeded.updated_at = datetime.now(UTC)
 
     def _recount(self, job_id: str, user_id: str) -> None:
         """从条目事实重新计算聚合状态，避免累加计数在重试后漂移。"""
@@ -397,9 +444,12 @@ class BatchImporter:
             ).all()
             success_count = sum(status == "success" for status in statuses)
             failure_count = sum(status == "failed" for status in statuses)
+            queued_count = sum(status == "queued" for status in statuses)
             job.success_count = success_count
             job.failure_count = failure_count
-            if success_count == job.total_count:
+            if queued_count:
+                job.status = "running"
+            elif success_count == job.total_count:
                 job.status = "completed"
             elif failure_count == job.total_count:
                 job.status = "failed"

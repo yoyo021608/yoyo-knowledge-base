@@ -383,6 +383,32 @@ export async function createBatchImport(
   return batchOf(raw);
 }
 
+/** 只读取 documents 批量任务状态，不在客户端推断成功条目。 */
+export async function getBatchImport(
+  baseUrl: string,
+  accessToken: string,
+  jobId: string,
+): Promise<BatchJobResult> {
+  return batchOf(
+    await request<Record<string, unknown>>(
+      baseUrl,
+      accessToken,
+      `/api/document-import-jobs/${encodeURIComponent(jobId)}`,
+    ),
+  );
+}
+
+/** 登录后找回当前用户最近的批量录入任务。 */
+export async function listBatchImports(
+  baseUrl: string,
+  accessToken: string,
+): Promise<BatchJobResult[]> {
+  const raw = await request<Record<string, unknown>[]>(
+    baseUrl, accessToken, "/api/document-import-jobs",
+  );
+  return raw.map(batchOf);
+}
+
 export async function retryBatchImport(
   baseUrl: string,
   accessToken: string,

@@ -61,7 +61,7 @@ type SingleImporter interface {
 
 ### 批量录入（Batch Import）
 
-批量录入负责接收多条资料、记录批量任务和逐条处理结果；处理范围限于文档录入，不执行问答或会话操作。
+批量录入负责接收多条资料、记录批量任务和逐条处理结果；提交时保存 queued 任务，后台 Worker 逐条处理，页面查询进度，刷新后可找回最近批次。成功条目与创建的文档在同一事务提交，重启后只继续未完成条目；失败条目可单独重新排队。处理范围限于文档录入，不执行问答或会话操作。
 
 ~~~go
 type BatchImportInput struct {
@@ -83,15 +83,21 @@ type ImportItemResult struct {
     ID string
     JobID string
     InputIndex int
-    Status string // success、failed。
+    Status string // queued、success、failed。
     DocumentID string
     ErrorMessage string
 }
 
+type BatchJobResult struct {
+    Job ImportJob
+    Items []ImportItemResult
+}
+
 type BatchImporter interface {
-    CreateJob(input BatchImportInput) (ImportJob, error) // 创建批量录入任务并保存任务状态。
-    GetJob(jobID string, userID string) (ImportJob, []ImportItemResult, error) // 查看批量任务及逐条处理结果。
-    RetryFailed(jobID string, userID string) (ImportJob, error) // 只重试失败条目并更新任务状态。
+    CreateJob(input BatchImportInput) (BatchJobResult, error) // 保存 queued 批量任务，后台逐条执行。
+    GetJob(jobID string, userID string) (BatchJobResult, error) // 查看批量任务及逐条处理结果。
+    ListJobs(userID string, limit int) ([]BatchJobResult, error) // 找回当前用户最近的批次。
+    RetryFailed(jobID string, userID string) (BatchJobResult, error) // 只将失败条目重新排队。
 }
 ~~~
 
@@ -349,6 +355,7 @@ DocumentEditor.Get(...)
 // 批量录入
 BatchImporter.CreateJob(...)
 BatchImporter.GetJob(...)
+BatchImporter.ListJobs(...)
 
 // 查看批量结果和重试失败条目
 BatchImporter.GetJob(...)
