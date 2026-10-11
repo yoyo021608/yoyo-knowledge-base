@@ -3,7 +3,7 @@
 import base64
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from server.controller.documents.schemas import (
     BatchImportRequest,
@@ -101,14 +101,14 @@ def import_file(
 @router.post(
     "/document-import-jobs",
     response_model=BatchJobResponse,
-    status_code=status.HTTP_201_CREATED,
+    status_code=status.HTTP_202_ACCEPTED,
 )
 def create_import_job(
     body: BatchImportRequest,
     documents: Annotated[DocumentsModule, Depends(get_documents)],
     identity: Annotated[IdentityContext, Depends(require_identity)],
 ) -> BatchJobResponse:
-    """创建并逐条运行批量录入任务。"""
+    """持久化批量录入任务，由 documents Worker 逐条执行。"""
     try:
         result = documents.batch_importer.create_job(
             BatchImportInput(
@@ -137,13 +137,26 @@ def get_import_job(
     return schema_of(BatchJobResponse, result)
 
 
+@router.get("/document-import-jobs", response_model=list[BatchJobResponse])
+def list_import_jobs(
+    documents: Annotated[DocumentsModule, Depends(get_documents)],
+    identity: Annotated[IdentityContext, Depends(require_identity)],
+    limit: int = Query(default=10, ge=1, le=20),
+) -> list[BatchJobResponse]:
+    """只列出当前用户的最近批次，供刷新页面后继续查看结果。"""
+    return [
+        schema_of(BatchJobResponse, result)
+        for result in documents.batch_importer.list_jobs(identity.user_id, limit=limit)
+    ]
+
+
 @router.post("/document-import-jobs/{job_id}/retry", response_model=BatchJobResponse)
 def retry_import_job(
     job_id: str,
     documents: Annotated[DocumentsModule, Depends(get_documents)],
     identity: Annotated[IdentityContext, Depends(require_identity)],
 ) -> BatchJobResponse:
-    """只重试批次中失败的输入。"""
+    """只将批次中失败的输入重新排队。"""
     try:
         result = documents.batch_importer.retry_failed(job_id, identity.user_id)
     except DocumentsError as exc:

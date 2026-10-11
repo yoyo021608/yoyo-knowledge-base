@@ -89,16 +89,28 @@ def test_batch_failure_is_isolated_and_success_is_not_duplicated_on_retry(
             ),
         )
     )
+    assert result.job.status == "queued"
+    assert module.batch_importer.list_jobs("user-a")[0].job.id == result.job.id
+    assert module.batch_importer.list_jobs("user-b") == ()
+    assert module.editor.list("user-a", DocumentFilter()) == ()
+    # 重新装配领域模块后仍从数据库领回任务，不依赖原进程内存。
+    restarted = DocumentsModule.create(database)
+    assert restarted.batch_importer.run_queued() == 1
+    result = module.batch_importer.get_job(result.job.id, "user-a")
     assert result.job.status == "partial"
     assert result.job.success_count == 1
     assert result.job.failure_count == 1
     successful_id = result.items[0].document_id
 
     retried = module.batch_importer.retry_failed(result.job.id, "user-a")
+    assert retried.job.status == "queued"
+    assert module.batch_importer.run_queued() == 1
+    retried = module.batch_importer.get_job(result.job.id, "user-a")
     assert retried.job.status == "partial"
     assert retried.items[0].document_id == successful_id
     assert len(module.editor.list("user-a", DocumentFilter())) == 1
     assert module.editor.list("ignored-user", DocumentFilter()) == ()
+    assert module.batch_importer.run_queued() == 0
 
     module.editor.delete(successful_id or "", "user-a")
     after_delete = module.batch_importer.get_job(result.job.id, "user-a")

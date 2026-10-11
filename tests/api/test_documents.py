@@ -104,4 +104,27 @@ def test_documents_http_flow_uses_authenticated_identity(tmp_path: Path) -> None
         == 204
     )
     assert client.get("/api/documents", headers=alice_headers).json() == []
+
+    batch = client.post(
+        "/api/document-import-jobs",
+        headers=alice_headers,
+        json={"items": [{"title": "后台批次", "content": "异步录入正文"}]},
+    )
+    assert batch.status_code == 202
+    job_id = batch.json()["job"]["id"]
+    assert batch.json()["job"]["status"] == "queued"
+    own_jobs = client.get("/api/document-import-jobs", headers=alice_headers)
+    assert own_jobs.status_code == 200
+    assert own_jobs.json()[0]["job"]["id"] == job_id
+    assert client.get("/api/document-import-jobs", headers=bob_headers).json() == []
+    assert (
+        client.get(
+            f"/api/document-import-jobs/{job_id}", headers=bob_headers
+        ).status_code
+        == 404
+    )
+    assert documents.batch_importer.run_queued() == 1
+    finished = client.get(f"/api/document-import-jobs/{job_id}", headers=alice_headers)
+    assert finished.json()["job"]["status"] == "completed"
+    assert finished.json()["items"][0]["document_id"]
     database.close()

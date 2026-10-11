@@ -1,9 +1,11 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import {
   createBatchImport,
+  getBatchImport,
   importDocument,
   importDocumentFile,
+  listBatchImports,
   retryBatchImport,
   type BatchJobResult,
   type SourceType,
@@ -26,6 +28,14 @@ function tagsOf(value: string): string[] {
     .filter(Boolean);
 }
 
+const BATCH_STATUS_LABELS: Record<string, string> = {
+  queued: "等待处理",
+  running: "处理中",
+  completed: "已完成",
+  partial: "部分完成",
+  failed: "处理失败",
+};
+
 /** 单条、文件和批量录入入口；三种入口最终都调用 documents 公开接口。 */
 export function DocumentImportPanel({
   apiBaseUrl,
@@ -44,6 +54,45 @@ export function DocumentImportPanel({
   const [batchText, setBatchText] = useState("");
   const [batch, setBatch] = useState<BatchJobResult | null>(null);
   const [busy, setBusy] = useState(false);
+  const selectedJob = useRef(0);
+
+  useEffect(() => {
+    let active = true;
+    const selection = selectedJob.current;
+    void listBatchImports(apiBaseUrl, accessToken)
+      .then((jobs) => {
+        if (active && selectedJob.current === selection) setBatch(jobs[0] ?? null);
+      })
+      .catch((error: unknown) => {
+        if (active) onMessage(error instanceof Error ? error.message : "读取批量任务失败");
+      });
+    return () => { active = false; };
+  }, [accessToken, apiBaseUrl, onMessage]);
+
+  useEffect(() => {
+    if (!batch || !["queued", "running"].includes(batch.job.status)) return;
+    const jobId = batch.job.id;
+    let active = true;
+    let polling = false;
+    const timer = window.setInterval(() => {
+      if (polling) return;
+      polling = true;
+      void getBatchImport(apiBaseUrl, accessToken, jobId)
+        .then(async (current) => {
+          if (!active) return;
+          setBatch(current);
+          if (!["queued", "running"].includes(current.job.status)) {
+            onMessage(`批量录入已结束：成功 ${current.job.successCount}，失败 ${current.job.failureCount}`);
+            await onChanged();
+          }
+        })
+        .catch((error: unknown) => {
+          if (active) onMessage(error instanceof Error ? error.message : "读取批量进度失败");
+        })
+        .finally(() => { polling = false; });
+    }, 1500);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [accessToken, apiBaseUrl, batch?.job.id, batch?.job.status, onChanged, onMessage]);
 
   async function submitSingle(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -127,9 +176,9 @@ export function DocumentImportPanel({
           };
         }),
       );
+      selectedJob.current += 1;
       setBatch(result);
-      onMessage(`批量录入完成：成功 ${result.job.successCount}，失败 ${result.job.failureCount}`);
-      await onChanged();
+      onMessage("批量任务已创建，正在后台录入");
     } catch (error) {
       onMessage(error instanceof Error ? error.message : "批量录入失败");
     } finally {
@@ -143,8 +192,7 @@ export function DocumentImportPanel({
     try {
       const result = await retryBatchImport(apiBaseUrl, accessToken, batch.job.id);
       setBatch(result);
-      onMessage(`重试完成：成功 ${result.job.successCount}，失败 ${result.job.failureCount}`);
-      await onChanged();
+      onMessage("失败条目已重新排队");
     } catch (error) {
       onMessage(error instanceof Error ? error.message : "重试失败");
     } finally {
@@ -204,9 +252,18 @@ export function DocumentImportPanel({
         <textarea rows={8} value={batchText} onChange={(event) => setBatchText(event.target.value)} />
         <div className="account-actions">
           <Button disabled={busy} onClick={() => void submitBatch()}>开始批量录入</Button>
-          {batch?.job.failureCount ? <Button disabled={busy} onClick={() => void retryFailed()}>只重试失败条目</Button> : null}
+          {batch?.job.failureCount && ["partial", "failed"].includes(batch.job.status)
+            ? <Button disabled={busy} onClick={() => void retryFailed()}>只重试失败条目</Button>
+            : null}
         </div>
-        {batch && <p>任务 {batch.job.status}：{batch.job.successCount}/{batch.job.totalCount} 成功</p>}
+        {batch && (
+          <div>
+            <p>批量任务{BATCH_STATUS_LABELS[batch.job.status] ?? batch.job.status}：成功 {batch.job.successCount}/{batch.job.totalCount}，失败 {batch.job.failureCount}</p>
+            {batch.items.filter((item) => item.status === "failed").map((item) => (
+              <p key={item.id} className="muted">第 {item.inputIndex + 1} 条：{item.errorMessage ?? "录入失败"}</p>
+            ))}
+          </div>
+        )}
       </details>
     </Card>
   );
