@@ -63,14 +63,14 @@ function Application() {
     }
   }
 
-  const signOut = useCallback((): void => {
+  const signOut = useCallback((notice: string): void => {
     try {
       browserRunDraftStore.clearAll();
       browserWorkspaceDraftStore.clear();
     } catch {
       // 浏览器存储异常不能阻止当前页面撤销登录状态。
     }
-    auth.clear();
+    auth.clear(notice);
   }, [auth.clear]);
 
   return (

@@ -41,7 +41,7 @@ export function useAuthSession(apiBaseUrl: string) {
     setNotice("");
   }, []);
 
-  const clear = useCallback(() => {
+  const clear = useCallback((notice = "") => {
     try {
       window.localStorage.removeItem(STORAGE_KEY);
     } catch {
@@ -51,7 +51,7 @@ export function useAuthSession(apiBaseUrl: string) {
     setProfile(null);
     setStatus("anonymous");
     setProfileError("");
-    setNotice("");
+    setNotice(notice);
   }, []);
 
   useEffect(

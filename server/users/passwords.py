@@ -62,9 +62,9 @@ class PasswordManagement:
             if user is None or not self._credentials.verify(
                 old_password, user.password_hash
             ):
-                raise InvalidCredentials("原密码错误")
+                raise InvalidCredentials("当前密码不正确")
             if self._credentials.verify(new_password, user.password_hash):
-                raise InvalidCredentials("新密码不能与原密码相同")
+                raise InvalidCredentials("新密码不能与当前密码相同")
             user.password_hash = new_password_hash
             user.updated_at = now
             LoginSessions.revoke_all(session, user.id, now)
@@ -119,10 +119,10 @@ class PasswordManagement:
                 or reset_token.used_at is not None
                 or as_utc(reset_token.expires_at) <= now
             ):
-                raise InvalidResetToken("重置凭证无效或已过期")
+                raise InvalidResetToken("重置链接无效或已过期，请重新申请")
             user = session.get(User, reset_token.user_id)
             if user is None:
-                raise InvalidResetToken("重置凭证无效或已过期")
+                raise InvalidResetToken("重置链接无效或已过期，请重新申请")
             reset_token.used_at = now
             user.password_hash = new_password_hash
             user.updated_at = now

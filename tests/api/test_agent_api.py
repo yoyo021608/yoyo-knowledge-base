@@ -56,8 +56,8 @@ def test_question_flow_saves_answer_and_reuses_request_id(tmp_path: Path) -> Non
     users = UsersModule.create(database, settings, DevelopmentHttpResetDelivery())
     sessions = SessionsModule.create(database)
     agent = AgentModule.create(database, settings, FakeChatClient(), ApiDocumentsPort())
-    profile = users.registration.register("alice@example.com", "correct-horse-1")
-    login = users.login_sessions.login("alice@example.com", "correct-horse-1")
+    profile = users.registration.register("alice@example.com", "Correct-Horse-1!")
+    login = users.login_sessions.login("alice@example.com", "Correct-Horse-1!")
     session = sessions.management.create(profile.id, "知识问答")
 
     application = create_app(settings)

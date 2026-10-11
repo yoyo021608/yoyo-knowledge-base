@@ -93,15 +93,15 @@ class LoginSessions:
             normalized_email = normalize_email(email)
         except InvalidEmail:
             self._credentials.consume_dummy_verification(password)
-            raise InvalidCredentials("邮箱或密码错误") from None
+            raise InvalidCredentials("邮箱或密码不正确，请检查后重试") from None
 
         with self._database.transaction() as session:
             user = session.scalar(select(User).where(User.email == normalized_email))
             if user is None:
                 self._credentials.consume_dummy_verification(password)
-                raise InvalidCredentials("邮箱或密码错误")
+                raise InvalidCredentials("邮箱或密码不正确，请检查后重试")
             if not self._credentials.verify(password, user.password_hash):
-                raise InvalidCredentials("邮箱或密码错误")
+                raise InvalidCredentials("邮箱或密码不正确，请检查后重试")
 
             expires_at = datetime.now(UTC) + self._ttl
             login_session = UserLoginSession(

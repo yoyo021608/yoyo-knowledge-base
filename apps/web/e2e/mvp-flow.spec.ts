@@ -10,11 +10,11 @@ test("用户可以从注册进入带版本引用的知识问答", async ({ page 
 
   await page.getByRole("button", { name: "创建账户" }).click();
   await page.getByLabel("邮箱").fill("alice@example.com");
-  await page.getByLabel("密码").fill("correct-horse-1");
+  await page.getByLabel("密码").fill("Correct-Horse-1!");
   await page.getByRole("button", { name: "创建账户" }).click();
-  await expect(page.getByRole("status")).toContainText("账户已经创建");
+  await expect(page.getByRole("status")).toContainText("账户创建成功");
 
-  await page.getByLabel("密码").fill("correct-horse-1");
+  await page.getByLabel("密码").fill("Correct-Horse-1!");
   await page.getByRole("button", { name: "进入知识空间" }).click();
   await expect(page).toHaveURL(/\/documents$/);
   await expect(page.getByRole("heading", { name: "个人知识库" })).toBeVisible();

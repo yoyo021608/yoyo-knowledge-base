@@ -9,7 +9,10 @@ import {
 } from "@yoyo/core";
 import { Button } from "@yoyo/ui";
 
+import { passwordRequirement, strongPasswordPattern } from "./passwordPolicy";
+
 type AccessMode = "login" | "register" | "forgot" | "reset";
+type MessageKind = "error" | "status";
 
 interface AccountAccessViewProps {
   apiBaseUrl: string;
@@ -18,6 +21,7 @@ interface AccountAccessViewProps {
 }
 
 function messageOf(error: unknown): string {
+  if (error instanceof TypeError) return "暂时无法连接服务，请稍后重试";
   return error instanceof Error ? error.message : "操作失败，请稍后重试";
 }
 
@@ -55,15 +59,20 @@ export function AccountAccessView({
   const [password, setPassword] = useState("");
   const [resetToken, setResetToken] = useState("");
   const [message, setMessage] = useState(initialMessage);
+  const [messageKind, setMessageKind] = useState<MessageKind>("status");
   const [pending, setPending] = useState(false);
 
   useEffect(() => {
-    if (initialMessage) setMessage(initialMessage);
+    if (initialMessage) {
+      setMessage(initialMessage);
+      setMessageKind("status");
+    }
   }, [initialMessage]);
 
   function changeMode(nextMode: AccessMode): void {
     setMode(nextMode);
     setMessage("");
+    setMessageKind("status");
     setPassword("");
     if (nextMode !== "reset") setResetToken("");
   }
@@ -77,12 +86,14 @@ export function AccountAccessView({
         await registerAccount(apiBaseUrl, email, password);
         setMode("login");
         setPassword("");
-        setMessage("账户已经创建 使用刚才的邮箱继续登录");
+        setMessageKind("status");
+        setMessage("账户创建成功，请登录");
       } else if (mode === "login") {
         const session = await loginAccount(apiBaseUrl, email, password);
         onAuthenticated(session);
       } else if (mode === "forgot") {
         const result = await requestPasswordReset(apiBaseUrl, email);
+        setMessageKind("status");
         setMessage(result.message);
         if (result.developmentResetToken !== null) {
           setResetToken(result.developmentResetToken);
@@ -93,9 +104,11 @@ export function AccountAccessView({
         setMode("login");
         setPassword("");
         setResetToken("");
-        setMessage("密码已经更新 使用新密码重新登录");
+        setMessageKind("status");
+        setMessage("密码已更新，请重新登录");
       }
     } catch (error) {
+      setMessageKind("error");
       setMessage(messageOf(error));
     } finally {
       setPending(false);
@@ -164,17 +177,33 @@ export function AccountAccessView({
                 autoComplete={mode === "login" ? "current-password" : "new-password"}
                 minLength={mode === "login" ? 1 : 10}
                 maxLength={128}
+                pattern={mode === "login" ? undefined : strongPasswordPattern}
+                title={mode === "login" ? undefined : passwordRequirement}
+                aria-describedby={mode === "login" ? undefined : "password-requirement"}
                 required
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
               />
+              {mode !== "login" && (
+                <small className="field-hint" id="password-requirement">
+                  {passwordRequirement}
+                </small>
+              )}
             </label>
           )}
           <Button type="submit" disabled={pending}>
             {pending ? "处理中…" : submitLabel}
           </Button>
         </form>
-        {message && <p className="auth-message" role="status">{message}</p>}
+        {message && (
+          <p
+            className="auth-message"
+            data-kind={messageKind}
+            role={messageKind === "error" ? "alert" : "status"}
+          >
+            {message}
+          </p>
+        )}
         <footer className="auth-actions">
           {mode === "login" && (
             <>

@@ -58,13 +58,13 @@ def test_mvp_business_flow_survives_refresh_and_replays_versioned_citations(
     try:
         registered = client.post(
             "/api/users/register",
-            json={"email": "alice@example.com", "password": "correct-horse-1"},
+            json={"email": "alice@example.com", "password": "Correct-Horse-1!"},
         )
         assert registered.status_code == 201
 
         logged_in = client.post(
             "/api/auth/login",
-            json={"email": "alice@example.com", "password": "correct-horse-1"},
+            json={"email": "alice@example.com", "password": "Correct-Horse-1!"},
         )
         assert logged_in.status_code == 200
         token = logged_in.json()["access_token"]

@@ -339,6 +339,13 @@
   font-weight: 750;
 }
 
+.account-form .field-hint {
+  color: #71839a;
+  font-size: 0.76rem;
+  font-weight: 500;
+  line-height: 1.55;
+}
+
 .account-actions { display: flex; flex-wrap: wrap; gap: 9px; }
 
 .account-actions .ui-button:not(:first-child),
@@ -1074,6 +1081,7 @@ summary { color: var(--brand-dark); font-weight: 750; cursor: pointer; }
 .auth-panel .account-form { margin: 30px 0 18px; }
 .auth-panel .account-form .ui-button { width: 100%; min-height: 46px; margin-top: 4px; }
 .auth-message { margin: 0 0 18px; padding: 11px 13px; border: 1px solid #cfe0f4; border-radius: 10px; color: #45658e; background: #eff6ff; font-size: 0.8rem; }
+.auth-message[data-kind="error"] { border-color: #efc8c8; color: #934747; background: #fff4f4; }
 .auth-actions { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding-top: 18px; border-top: 1px solid var(--line); }
 .auth-actions p { margin: 0; color: var(--muted); font-size: 0.78rem; }
 .auth-actions button { padding: 0; border: 0; color: var(--brand-dark); background: transparent; font-size: 0.78rem; font-weight: 750; cursor: pointer; }

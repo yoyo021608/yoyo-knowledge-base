@@ -38,7 +38,7 @@ describe("账户 core 接口", () => {
     const session = await loginAccount(
       "http://localhost:8000",
       "alice@example.com",
-      "correct-horse-1",
+      "Correct-Horse-1!",
     );
 
     expect(session.accessToken).toBe("token-1");
@@ -51,7 +51,7 @@ describe("账户 core 接口", () => {
       vi.fn().mockResolvedValue(
         new Response(
           JSON.stringify({
-            message: "如果该邮箱存在，密码重置请求已受理",
+            message: "若该邮箱已注册，重置说明将发送至该邮箱",
             development_reset_token: "reset-token",
           }),
           { status: 202, headers: { "Content-Type": "application/json" } },

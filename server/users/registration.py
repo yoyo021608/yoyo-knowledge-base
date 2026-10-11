@@ -36,7 +36,7 @@ class Registration:
                 session.add(user)
                 session.flush()
         except IntegrityError as exc:
-            raise EmailAlreadyRegistered("该邮箱已注册") from exc
+            raise EmailAlreadyRegistered("该邮箱已注册，请直接登录或找回密码") from exc
         return UserProfile(id=user.id, email=user.email)
 
     def find_by_email(self, email: str) -> User | None:

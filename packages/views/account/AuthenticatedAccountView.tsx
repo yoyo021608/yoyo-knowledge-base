@@ -7,16 +7,19 @@ import {
 } from "@yoyo/core";
 import { Button } from "@yoyo/ui";
 
+import { passwordRequirement, strongPasswordPattern } from "./passwordPolicy";
+
 interface AuthenticatedAccountViewProps {
   apiBaseUrl: string;
   accessToken: string;
-  onSignedOut: () => void;
+  onSignedOut: (notice: string) => void;
   onRetryProfile: () => void;
   profile: UserProfile | null;
   profileError: string;
 }
 
 function messageOf(error: unknown): string {
+  if (error instanceof TypeError) return "暂时无法连接服务，请稍后重试";
   return error instanceof Error ? error.message : "操作失败，请稍后重试";
 }
 
@@ -37,10 +40,14 @@ export function AuthenticatedAccountView({
 
   async function signOut(): Promise<void> {
     setSignOutPending(true);
+    let notice = "已退出当前设备";
     try {
       await logoutAccount(apiBaseUrl, accessToken);
+      notice = "已安全退出";
+    } catch {
+      // 服务不可达时仍删除本地凭证，但不宣称远端会话已经撤销。
     } finally {
-      onSignedOut();
+      onSignedOut(notice);
     }
   }
 
@@ -50,7 +57,7 @@ export function AuthenticatedAccountView({
     setMessage("");
     try {
       await changeAccountPassword(apiBaseUrl, accessToken, oldPassword, newPassword);
-      onSignedOut();
+      onSignedOut("密码已更新，请重新登录");
     } catch (error) {
       setMessage(messageOf(error));
     } finally {
@@ -100,10 +107,16 @@ export function AuthenticatedAccountView({
                 autoComplete="new-password"
                 minLength={10}
                 maxLength={128}
+                pattern={strongPasswordPattern}
+                title={passwordRequirement}
+                aria-describedby="new-password-requirement"
                 required
                 value={newPassword}
                 onChange={(event) => setNewPassword(event.target.value)}
               />
+              <small className="field-hint" id="new-password-requirement">
+                {passwordRequirement}
+              </small>
             </label>
             <Button type="submit" disabled={passwordPending}>{passwordPending ? "正在更新…" : "更新密码"}</Button>
           </form>
@@ -115,11 +128,11 @@ export function AuthenticatedAccountView({
         </article>
       </section>
       {profileError && (
-        <p className="auth-message account-message" role="alert">
+        <p className="auth-message account-message" data-kind="error" role="alert">
           {profileError} <button type="button" onClick={onRetryProfile}>重新读取</button>
         </p>
       )}
-      {message && <p className="auth-message account-message" role="status">{message}</p>}
+      {message && <p className="auth-message account-message" data-kind="error" role="alert">{message}</p>}
     </main>
   );
 }
