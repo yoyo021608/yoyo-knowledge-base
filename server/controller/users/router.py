@@ -234,7 +234,7 @@ def request_password_reset(
             detail=str(exc),
         ) from exc
     return MessageResponse(
-        message="如果该邮箱存在，密码重置请求已受理",
+        message="若该邮箱已注册，重置说明将发送至该邮箱",
         # 本地开发没有邮件服务；未知账户也返回同形态伪凭证，避免泄露账户状态。
         development_reset_token=(
             development_token if settings.app_env in {"development", "test"} else None

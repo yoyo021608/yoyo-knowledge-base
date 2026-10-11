@@ -27,10 +27,10 @@ def test_sessions_http_flow_keeps_identity_and_module_boundaries(
     )
     users = UsersModule.create(database, settings, DevelopmentHttpResetDelivery())
     sessions = SessionsModule.create(database)
-    users.registration.register("alice@example.com", "correct-horse-1")
-    users.registration.register("bob@example.com", "correct-horse-2")
-    alice = users.login_sessions.login("alice@example.com", "correct-horse-1")
-    bob = users.login_sessions.login("bob@example.com", "correct-horse-2")
+    users.registration.register("alice@example.com", "Correct-Horse-1!")
+    users.registration.register("bob@example.com", "Correct-Horse-2!")
+    alice = users.login_sessions.login("alice@example.com", "Correct-Horse-1!")
+    bob = users.login_sessions.login("bob@example.com", "Correct-Horse-2!")
     app = create_app(settings)
     app.dependency_overrides[get_users] = lambda: users
     app.dependency_overrides[get_sessions] = lambda: sessions

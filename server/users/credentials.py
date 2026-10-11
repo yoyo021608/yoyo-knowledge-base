@@ -38,8 +38,16 @@ class PasswordCredentials:
             raise WeakPassword("密码至少需要 10 个字符")
         if len(password) > 128:
             raise WeakPassword("密码不能超过 128 个字符")
-        if password.isspace():
-            raise WeakPassword("密码不能只包含空白字符")
+        if any(character.isspace() for character in password):
+            raise WeakPassword("密码不能包含空白字符")
+        if re.search(r"[a-z]", password) is None:
+            raise WeakPassword("密码至少需要一个小写英文字母")
+        if re.search(r"[A-Z]", password) is None:
+            raise WeakPassword("密码至少需要一个大写英文字母")
+        if re.search(r"[0-9]", password) is None:
+            raise WeakPassword("密码至少需要一个数字")
+        if re.search(r"[^A-Za-z0-9\s]", password) is None:
+            raise WeakPassword("密码至少需要一个特殊字符")
 
     def hash(self, password: str) -> str:
         """校验密码并使用 Argon2 生成摘要。"""

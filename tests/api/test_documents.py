@@ -25,10 +25,10 @@ def test_documents_http_flow_uses_authenticated_identity(tmp_path: Path) -> None
     )
     users = UsersModule.create(database, settings, DevelopmentHttpResetDelivery())
     documents = DocumentsModule.create(database, LocalFileStorage(tmp_path / "uploads"))
-    users.registration.register("alice@example.com", "correct-horse-1")
-    users.registration.register("bob@example.com", "correct-horse-2")
-    alice = users.login_sessions.login("alice@example.com", "correct-horse-1")
-    bob = users.login_sessions.login("bob@example.com", "correct-horse-2")
+    users.registration.register("alice@example.com", "Correct-Horse-1!")
+    users.registration.register("bob@example.com", "Correct-Horse-2!")
+    alice = users.login_sessions.login("alice@example.com", "Correct-Horse-1!")
+    bob = users.login_sessions.login("bob@example.com", "Correct-Horse-2!")
 
     application = create_app(settings)
     application.dependency_overrides[get_users] = lambda: users

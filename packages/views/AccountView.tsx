@@ -4,7 +4,7 @@ import type { UserProfile } from "@yoyo/core";
 interface AccountViewProps {
   apiBaseUrl: string;
   accessToken: string;
-  onSignedOut: () => void;
+  onSignedOut: (notice: string) => void;
   onRetryProfile: () => void;
   profile: UserProfile | null;
   profileError: string;
