@@ -80,6 +80,9 @@ class DocumentResponse(BaseModel):
     tags: list[str]
     created_at: datetime
     updated_at: datetime
+    source_checked_at: datetime | None = None
+    source_changed_at: datetime | None = None
+    source_change_diff: str | None = None
 
 
 class SourceResponse(BaseModel):
@@ -89,6 +92,13 @@ class SourceResponse(BaseModel):
     source_url: str | None
     title: str
     captured_at: datetime
+
+
+class SourceChangeResponse(BaseModel):
+    changed: bool
+    previous_version_id: str
+    current_version_id: str
+    diff: str
 
 
 class VersionResponse(BaseModel):

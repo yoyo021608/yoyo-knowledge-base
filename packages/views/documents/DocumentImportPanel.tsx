@@ -59,7 +59,11 @@ export function DocumentImportPanel({
       });
       setTitle("");
       setContent("");
-      onMessage(`录入成功，索引状态：${result.indexStatus}`);
+      onMessage(
+        result.indexStatus === "queued"
+          ? "资料已保存，正在建立索引"
+          : `录入成功，索引状态：${result.indexStatus}`,
+      );
       await onChanged(result.documentId);
     } catch (error) {
       onMessage(error instanceof Error ? error.message : "录入失败");
@@ -85,7 +89,11 @@ export function DocumentImportPanel({
         tags: tagsOf(tags),
       });
       setFile(null);
-      onMessage(`文件录入成功，索引状态：${result.indexStatus}`);
+      onMessage(
+        result.indexStatus === "queued"
+          ? "文件已保存，正在建立索引"
+          : `文件录入成功，索引状态：${result.indexStatus}`,
+      );
       await onChanged(result.documentId);
     } catch (error) {
       onMessage(error instanceof Error ? error.message : "文件录入失败");

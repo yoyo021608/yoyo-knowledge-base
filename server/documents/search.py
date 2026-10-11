@@ -178,9 +178,27 @@ class DocumentSearch:
                     s.source_url,
                     CASE WHEN position(lower(:query_text) IN lower(c.content)) > 0
                          THEN 1.0 ELSE 0.0 END AS keyword_score,
-                    ts_rank_cd(
-                        to_tsvector('simple', c.search_text),
-                        plainto_tsquery('simple', :query_text)
+                    GREATEST(
+                        ts_rank_cd(
+                            to_tsvector('simple', c.search_text),
+                            plainto_tsquery('simple', :query_text)
+                        ),
+                        COALESCE((
+                            SELECT COUNT(*)::double precision
+                                   / NULLIF(
+                                       cardinality(
+                                           CAST(:query_tokens AS varchar[])
+                                       ),
+                                       0
+                                   )
+                            FROM unnest(
+                                CAST(:query_tokens AS varchar[])
+                            ) AS query_terms(query_token)
+                            WHERE position(
+                                lower(query_terms.query_token)
+                                IN lower(c.content)
+                            ) > 0
+                        ), 0.0)
                     ) AS full_text_score,
                     GREATEST(
                         0.0,
@@ -242,6 +260,9 @@ class DocumentSearch:
                 statement,
                 {
                     "query_text": text_value,
+                    # PostgreSQL 的 simple 配置不会为连续中文分词；以与本地
+                    # 检索相同的双字片段计算覆盖率，同时保留原生全文排名。
+                    "query_tokens": sorted(set(tokenize(text_value))),
                     "embedding": embedding_literal(query_embedding),
                     "user_id": query.user_id,
                     "topic_id": query.topic_id,

@@ -17,7 +17,7 @@ from server.controller.sessions import router as sessions_router
 from server.controller.users import router as users_router
 from server.controller.users.reset_delivery import create_reset_delivery
 from server.documents import DocumentsModule
-from server.documents.worker import DocumentIndexWorker
+from server.documents.worker import DocumentIndexWorker, SourceWatchWorker
 from server.infra.resources import InfraResources
 from server.sessions import SessionsModule
 from server.users import UsersModule
@@ -56,6 +56,7 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         # 数据库暂不可用时由周期恢复任务重试，不阻止应用完成资源装配。
         _LOGGER.exception("agent.recovery.startup_failed")
     index_worker = DocumentIndexWorker(application.state.documents.indexer)
+    source_watch_worker = SourceWatchWorker(application.state.documents.source_changes)
     agent_recovery_worker = AgentRecoveryWorker(
         application.state.agent,
         application.state.sessions,
@@ -63,11 +64,13 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         startup_recovered=startup_recovered,
     )
     index_worker.start()
+    source_watch_worker.start()
     agent_recovery_worker.start()
     try:
         yield
     finally:
         await index_worker.close()
+        await source_watch_worker.close()
         await agent_recovery_worker.close()
         resources.close()
 

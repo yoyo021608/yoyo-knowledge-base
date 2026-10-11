@@ -207,6 +207,28 @@ class DocumentIndexer:
             document.index_status = "processing"
             content = version.content_snapshot
             user_id = version.user_id
+            embedding_key = getattr(self._embeddings, "cache_key", None)
+            reusable: dict[str, tuple[float, ...]] = {}
+            if embedding_key and version.version > 1:
+                previous = session.scalar(
+                    select(DocumentVersion).where(
+                        DocumentVersion.document_id == document.id,
+                        DocumentVersion.version == version.version - 1,
+                        DocumentVersion.user_id == user_id,
+                    )
+                )
+                if (
+                    previous is not None
+                    and previous.index_status == "ready"
+                    and previous.embedding_key == embedding_key
+                ):
+                    for chunk in session.scalars(
+                        select(DocumentChunk).where(
+                            DocumentChunk.version_id == previous.id,
+                            DocumentChunk.user_id == user_id,
+                        )
+                    ):
+                        reusable[chunk.content] = tuple(json.loads(chunk.vector_json))
 
         try:
             pieces = split_content(content)
@@ -214,7 +236,8 @@ class DocumentIndexer:
                 raise InvalidDocumentInput("文档正文不能为空")
             # 外部 Embedding 调用在事务外完成，避免模型延迟长期占用数据库事务。
             indexed_pieces = tuple(
-                (piece, self._embeddings.embed(piece)) for piece in pieces
+                (piece, reusable.get(piece) or self._embeddings.embed(piece))
+                for piece in pieces
             )
             with self._database.transaction() as session:
                 # 再次读取当前版本，防止较慢的旧任务覆盖刚创建的新版本。
@@ -336,6 +359,7 @@ class DocumentIndexer:
                             )
                 now = datetime.now(UTC)
                 version.index_status = "ready"
+                version.embedding_key = embedding_key
                 version.index_error = None
                 version.index_updated_at = now
                 document.index_status = "ready"
@@ -409,6 +433,100 @@ class DocumentIndexer:
                 # 单个任务失败已经记录，不阻塞后续版本修复。
                 continue
         return len(requests)
+
+    def retry(self, document_id: str, user_id: str) -> RefreshStatusView:
+        """将当前失败版本重新排队；queued、processing 和 ready 请求保持幂等。"""
+        with self._database.transaction() as session:
+            document = session.scalar(
+                select(Document).where(
+                    Document.id == document_id,
+                    Document.user_id == user_id,
+                )
+            )
+            if document is None:
+                raise DocumentNotFound("文档不存在")
+            version = session.scalar(
+                select(DocumentVersion).where(
+                    DocumentVersion.id == document.current_version_id,
+                    DocumentVersion.document_id == document.id,
+                    DocumentVersion.user_id == user_id,
+                )
+            )
+            if version is None:
+                raise DocumentNotFound("文档当前版本不存在")
+            task = session.scalar(
+                select(DocumentIndexTask).where(
+                    DocumentIndexTask.document_id == document.id,
+                    DocumentIndexTask.version_id == version.id,
+                )
+            )
+            if version.index_status in {"queued", "processing", "ready"}:
+                return RefreshStatusView(
+                    document_id=document.id,
+                    version_id=version.id,
+                    status=cast(IndexStatus, version.index_status),
+                    error_message=version.index_error,
+                    updated_at=version.index_updated_at,
+                )
+            now = datetime.now(UTC)
+            if task is None:
+                task = DocumentIndexTask(
+                    id=str(uuid4()),
+                    user_id=user_id,
+                    document_id=document.id,
+                    version_id=version.id,
+                    status="queued",
+                )
+                session.add(task)
+            else:
+                task.status = "queued"
+                task.error_message = None
+                task.updated_at = now
+            version.index_status = "queued"
+            version.index_error = None
+            version.index_updated_at = now
+            document.index_status = "queued"
+            document.updated_at = now
+            return RefreshStatusView(
+                document_id=document.id,
+                version_id=version.id,
+                status="queued",
+                error_message=None,
+                updated_at=now,
+            )
+
+    def requeue_interrupted(self) -> int:
+        """服务重启时把失去执行者的 processing 任务恢复为 queued。"""
+        recovered = 0
+        with self._database.transaction() as session:
+            tasks = session.scalars(
+                select(DocumentIndexTask).where(
+                    DocumentIndexTask.status == "processing"
+                )
+            ).all()
+            now = datetime.now(UTC)
+            for task in tasks:
+                document = session.get(Document, task.document_id)
+                version = session.get(DocumentVersion, task.version_id)
+                if (
+                    document is None
+                    or version is None
+                    or document.current_version_id != task.version_id
+                ):
+                    task.status = "completed"
+                    task.error_message = "版本已被更新，无需恢复旧索引"
+                    task.updated_at = now
+                    continue
+                task.status = "queued"
+                task.error_message = None
+                task.updated_at = now
+                version.index_status = "queued"
+                version.index_error = None
+                version.index_updated_at = now
+                document.index_status = "queued"
+                document.updated_at = now
+                recovered += 1
+        return recovered
 
     def get_status(self, document_id: str, user_id: str) -> RefreshStatusView:
         """查询属于当前用户的文档最新版本索引状态。"""

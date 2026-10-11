@@ -6,7 +6,9 @@ from sqlalchemy import select
 from server.documents import DocumentsModule
 from server.documents.errors import DocumentNotFound
 from server.documents.models import (
+    Document,
     DocumentIndexTask,
+    DocumentVersion,
     KnowledgeEntity,
     KnowledgePoint,
     KnowledgeRelation,
@@ -65,6 +67,8 @@ def test_import_update_search_archive_restore_and_export(
         )
     )
 
+    assert imported.index_status == "queued"
+    assert module.indexer.refresh_queued() == 1
     detail = module.editor.get(imported.document_id, "user-a")
     assert detail.document.index_status == "ready"
     assert detail.document.tags == ("RAG", "架构")
@@ -88,6 +92,10 @@ def test_import_update_search_archive_restore_and_export(
         ),
     )
     assert updated.version == 2
+    assert updated.index_status == "queued"
+    assert module.indexer.refresh_queued() == 1
+    updated = module.editor.get_version(imported.document_id, updated.id, "user-a")
+    assert updated.index_status == "ready"
     assert (
         "RAGFlow"
         in module.editor.get_version(
@@ -215,7 +223,7 @@ def test_web_import_can_fetch_content_from_url(
 def test_update_keeps_failed_version_for_explicit_index_retry(
     document_context: tuple[Database, DocumentsModule], tmp_path: Path
 ) -> None:
-    """编辑已提交后索引失败应返回 failed 版本，不能让用户误以为内容未保存。"""
+    """编辑先返回 queued；后台失败后仍保留版本并允许显式重试。"""
     database, module = document_context
     imported = module.single_importer.import_one(
         SingleImportInput(
@@ -238,9 +246,64 @@ def test_update_keeps_failed_version_for_explicit_index_retry(
     )
 
     assert updated.version == 2
+    assert updated.index_status == "queued"
+    assert failing_module.indexer.refresh_queued() == 2
+    updated = failing_module.editor.get_version(
+        imported.document_id, updated.id, "user-a"
+    )
     assert updated.index_status == "failed"
     assert "embedding unavailable" in (updated.index_error or "")
     assert (
         failing_module.editor.get(imported.document_id, "user-a").version.id
         == updated.id
     )
+
+    retried = failing_module.indexer.retry(imported.document_id, "user-a")
+    assert retried.status == "queued"
+    assert retried.error_message is None
+    # 重复点击只读取当前队列状态，不创建第二个任务。
+    assert (
+        failing_module.indexer.retry(imported.document_id, "user-a").status == "queued"
+    )
+    with database.session() as session:
+        tasks = session.scalars(
+            select(DocumentIndexTask).where(
+                DocumentIndexTask.document_id == imported.document_id,
+                DocumentIndexTask.version_id == updated.id,
+            )
+        ).all()
+        assert len(tasks) == 1
+        assert tasks[0].status == "queued"
+
+
+def test_interrupted_index_task_is_requeued_after_restart(
+    document_context: tuple[Database, DocumentsModule],
+) -> None:
+    """Worker 丢失时以数据库 processing 状态恢复，不依赖进程内任务对象。"""
+    database, module = document_context
+    imported = module.single_importer.import_one(
+        SingleImportInput(
+            user_id="user-a",
+            title="重启恢复",
+            content="索引任务的最终状态保存在数据库中。",
+            source_type="note",
+        )
+    )
+    with database.transaction() as session:
+        document = session.get(Document, imported.document_id)
+        version = session.get(DocumentVersion, imported.version_id)
+        task = session.scalar(
+            select(DocumentIndexTask).where(
+                DocumentIndexTask.document_id == imported.document_id,
+                DocumentIndexTask.version_id == imported.version_id,
+            )
+        )
+        assert document is not None and version is not None and task is not None
+        document.index_status = "processing"
+        version.index_status = "processing"
+        task.status = "processing"
+
+    assert module.indexer.requeue_interrupted() == 1
+    assert module.indexer.get_status(imported.document_id, "user-a").status == "queued"
+    assert module.indexer.refresh_queued() == 1
+    assert module.indexer.get_status(imported.document_id, "user-a").status == "ready"

@@ -2,6 +2,7 @@ import { type FormEvent, useEffect, useState } from "react";
 
 import {
   archiveDocument,
+  checkDocumentSource,
   createDocumentRelation,
   deleteDocument,
   deleteDocumentRelation,
@@ -67,22 +68,48 @@ export function DocumentDetailPanel({
   const [relationType, setRelationType] = useState("相关资料");
   const [knowledge, setKnowledge] = useState<DocumentKnowledge | null>(null);
   const [viewedVersion, setViewedVersion] = useState<DocumentVersion | null>(null);
+  const [sourceDiff, setSourceDiff] = useState(detail.document.sourceChangeDiff ?? "");
   const sourceLink = safeSourceUrl(detail.version.source.sourceUrl);
+
+  const detailTags = detail.document.tags.join(", ");
+  const detailSourceUrl = detail.version.source.sourceUrl ?? "";
+
+  useEffect(
+    () => setSourceDiff(detail.document.sourceChangeDiff ?? ""),
+    [detail.document.id, detail.document.sourceChangeDiff],
+  );
 
   useEffect(() => {
     setTitle(detail.document.title);
     setContent(detail.version.contentSnapshot);
     setTopicId(detail.document.topicId ?? "");
-    setTags(detail.document.tags.join(", "));
-    setSourceUrl(detail.version.source.sourceUrl ?? "");
+    setTags(detailTags);
+    setSourceUrl(detailSourceUrl);
+    setViewedVersion(null);
+  }, [
+    detail.document.id,
+    detail.document.title,
+    detail.document.topicId,
+    detail.version.id,
+    detail.version.contentSnapshot,
+    detailSourceUrl,
+    detailTags,
+  ]);
+
+  useEffect(() => {
     void listDocumentRelations(apiBaseUrl, accessToken, detail.document.id)
       .then(setRelations)
       .catch((error: unknown) => onMessage(error instanceof Error ? error.message : "读取关联失败"));
     void getDocumentKnowledge(apiBaseUrl, accessToken, detail.document.id)
       .then(setKnowledge)
       .catch((error: unknown) => onMessage(error instanceof Error ? error.message : "读取知识结构失败"));
-    setViewedVersion(null);
-  }, [accessToken, apiBaseUrl, detail, onMessage]);
+  }, [
+    accessToken,
+    apiBaseUrl,
+    detail.document.id,
+    detail.document.indexStatus,
+    onMessage,
+  ]);
 
   async function edit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -94,7 +121,7 @@ export function DocumentDetailPanel({
         tags: tagsOf(tags),
         sourceUrl: sourceUrl || undefined,
       });
-      onMessage("已创建新版本并刷新索引");
+      onMessage("新版本已保存，正在建立索引");
       await onChanged(detail.document.id);
     } catch (error) {
       onMessage(error instanceof Error ? error.message : "更新失败");
@@ -132,10 +159,25 @@ export function DocumentDetailPanel({
         accessToken,
         detail.document.id,
       );
-      onMessage(`索引重试完成：${nextStatus}`);
+      onMessage(
+        nextStatus === "queued"
+          ? "已重新排队，正在建立索引"
+          : `当前索引状态：${nextStatus}`,
+      );
       await onChanged(detail.document.id);
     } catch (error) {
       onMessage(error instanceof Error ? error.message : "索引重试失败");
+    }
+  }
+
+  async function checkSource(): Promise<void> {
+    try {
+      const result = await checkDocumentSource(apiBaseUrl, accessToken, detail.document.id);
+      setSourceDiff(result.diff);
+      onMessage(result.changed ? "来源内容已有变化，已保存为新版本并开始索引" : "来源内容没有变化");
+      if (result.changed) await onChanged(detail.document.id);
+    } catch (error) {
+      onMessage(error instanceof Error ? error.message : "检查来源失败");
     }
   }
 
@@ -196,6 +238,7 @@ export function DocumentDetailPanel({
           <Button onClick={() => void toggleFavorite()}>{detail.document.isFavorite ? "取消收藏" : "收藏"}</Button>
           <Button onClick={() => void toggleArchive()}>{detail.document.status === "active" ? "归档" : "恢复"}</Button>
           {detail.document.indexStatus === "failed" && <Button onClick={() => void retryIndex()}>重试索引</Button>}
+          {detail.version.source.sourceType === "web" && <Button onClick={() => void checkSource()}>检查来源变化</Button>}
           <Button onClick={() => void remove()}>删除</Button>
         </div>
       </div>
@@ -212,8 +255,11 @@ export function DocumentDetailPanel({
       <details>
         <summary>来源快照</summary>
         <p>{detail.version.source.title}（{detail.version.source.sourceType}）</p>
+        {detail.document.sourceCheckedAt && <p>最近检查：{new Date(detail.document.sourceCheckedAt).toLocaleString()}</p>}
+        {detail.document.sourceChangedAt && <p>最近一次来源变化：{new Date(detail.document.sourceChangedAt).toLocaleString()}</p>}
         {sourceLink && <a href={sourceLink} target="_blank" rel="noreferrer">打开原网址</a>}
       </details>
+      {sourceDiff && <details open><summary>来源变化</summary><pre>{sourceDiff}</pre></details>}
       <details>
         <summary>历史版本（{versions.length}）</summary>
         <ol>{versions.map((version) => <li key={version.id}><button onClick={() => void openVersion(version.id)}>v{version.version} · {version.indexStatus} · {version.titleSnapshot}</button></li>)}</ol>

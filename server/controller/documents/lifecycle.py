@@ -10,6 +10,7 @@ from server.controller.documents.schemas import (
     DocumentResponse,
     DocumentUpdateRequest,
     RefreshStatusResponse,
+    SourceChangeResponse,
     SourceResponse,
     VersionResponse,
 )
@@ -17,7 +18,7 @@ from server.controller.documents.shared import document_error, get_documents, sc
 from server.controller.users import require_identity
 from server.documents.errors import DocumentsError
 from server.documents.module import DocumentsModule
-from server.documents.types import DocumentFilter, DocumentUpdateInput, RefreshRequest
+from server.documents.types import DocumentFilter, DocumentUpdateInput
 from server.users.types import IdentityContext
 
 router = APIRouter(prefix="/api", tags=["documents"])
@@ -137,6 +138,22 @@ def get_source(
     return schema_of(SourceResponse, value)
 
 
+@router.post(
+    "/documents/{document_id}/source/check", response_model=SourceChangeResponse
+)
+def check_source(
+    document_id: str,
+    documents: Annotated[DocumentsModule, Depends(get_documents)],
+    identity: Annotated[IdentityContext, Depends(require_identity)],
+) -> SourceChangeResponse:
+    """检查网页变化；新版本的索引由已有后台任务完成。"""
+    try:
+        value = documents.source_changes.check(document_id, identity.user_id)
+    except DocumentsError as exc:
+        raise document_error(exc) from exc
+    return schema_of(SourceChangeResponse, value)
+
+
 @router.get(
     "/documents/{document_id}/knowledge",
     response_model=DocumentKnowledgeResponse,
@@ -176,13 +193,9 @@ def retry_index(
     documents: Annotated[DocumentsModule, Depends(get_documents)],
     identity: Annotated[IdentityContext, Depends(require_identity)],
 ) -> RefreshStatusResponse:
-    """按当前版本标识幂等重试索引，不创建重复文档。"""
+    """把当前失败版本重新排队，不在 HTTP 请求内执行耗时索引。"""
     try:
-        current = documents.indexer.get_status(document_id, identity.user_id)
-        documents.indexer.refresh(
-            RefreshRequest(document_id=document_id, version_id=current.version_id)
-        )
-        refreshed = documents.indexer.get_status(document_id, identity.user_id)
+        refreshed = documents.indexer.retry(document_id, identity.user_id)
     except DocumentsError as exc:
         raise document_error(exc) from exc
     return schema_of(RefreshStatusResponse, refreshed)
