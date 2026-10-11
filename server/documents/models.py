@@ -103,6 +103,9 @@ class Document(Base):
     index_status: Mapped[str] = mapped_column(
         String(20), default="queued", nullable=False
     )
+    source_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_change_diff: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
@@ -135,6 +138,7 @@ class DocumentVersion(Base):
         String(20), default="queued", nullable=False
     )
     index_error: Mapped[str | None] = mapped_column(Text)
+    embedding_key: Mapped[str | None] = mapped_column(String(500))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )

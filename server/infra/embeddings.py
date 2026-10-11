@@ -27,6 +27,8 @@ class EmbeddingClient(Protocol):
 class FakeEmbeddingClient:
     """为本地开发和测试生成稳定向量，不调用外部服务。"""
 
+    cache_key = "fake-sha256-256-v1"
+
     def embed(self, text: str) -> tuple[float, ...]:
         values = [0.0] * EMBEDDING_DIMENSIONS
         tokens = _TOKEN_PATTERN.findall(text.casefold())
@@ -48,6 +50,12 @@ class OpenAIEmbeddingClient:
     def __init__(self, api_key: str, base_url: str, model: str) -> None:
         self._client = OpenAI(api_key=api_key, base_url=base_url)
         self._model = model
+        self.cache_key = (
+            "openai:"
+            + hashlib.sha256(
+                f"{base_url.rstrip('/')}:{model}:{EMBEDDING_DIMENSIONS}".encode()
+            ).hexdigest()
+        )
 
     def embed(self, text: str) -> tuple[float, ...]:
         response = self._client.embeddings.create(

@@ -28,7 +28,6 @@ from server.documents.types import (
     ImportItemView,
     ImportJobView,
     ImportResult,
-    RefreshRequest,
     SingleImportInput,
     SourceInput,
     SourceType,
@@ -78,17 +77,15 @@ def _item_view(item: ImportItem) -> ImportItemView:
 
 
 class SingleImporter:
-    """校验并保存一条资料，然后为首个版本建立索引。"""
+    """校验并保存一条资料，同时为首个版本持久化索引任务。"""
 
     def __init__(
         self,
         database: Database,
-        indexer: DocumentIndexer,
         file_storage: LocalFileStorage | None = None,
         content_loader: DocumentContentLoader | None = None,
     ) -> None:
         self._database = database
-        self._indexer = indexer
         self._file_storage = file_storage
         self._content_loader = content_loader
 
@@ -123,7 +120,7 @@ class SingleImporter:
         )
 
     def import_one(self, import_input: SingleImportInput) -> ImportResult:
-        """创建文档、版本、来源和组织关系，随后触发幂等索引刷新。"""
+        """在同一事务中创建文档、版本、来源、组织关系和索引任务。"""
         title = clean_title(import_input.title)
         content = clean_content(import_input.content)
         source_type = _validate_source(
@@ -183,21 +180,11 @@ class SingleImporter:
                 session, document_id, import_input.user_id, import_input.tags
             )
 
-        # 版本和 queued 状态先提交。索引失败只把该版本标记 failed，不丢失资料。
-        try:
-            self._indexer.refresh(
-                RefreshRequest(document_id=document_id, version_id=version_id)
-            )
-        except Exception:
-            return ImportResult(
-                document_id=document_id,
-                version_id=version_id,
-                index_status="failed",
-            )
+        # HTTP 只确认资料和任务已经持久化；后台 Worker 负责执行耗时索引。
         return ImportResult(
             document_id=document_id,
             version_id=version_id,
-            index_status="ready",
+            index_status="queued",
         )
 
     def import_file(self, file_input: StoredFileInput) -> ImportResult:
@@ -263,6 +250,9 @@ class BatchImporter:
                 total_count=len(batch_input.items),
             )
             session.add(job)
+            # ImportItem 只保存 job_id，没有声明 ORM relationship。显式刷新父记录，
+            # 保证 PostgreSQL 在写入条目外键前已经持久化批次。
+            session.flush()
             for index, item in enumerate(batch_input.items):
                 session.add(
                     ImportItem(

@@ -88,8 +88,10 @@ def test_mvp_business_flow_survives_refresh_and_replays_versioned_citations(
         )
         assert imported.status_code == 201
         imported_body = imported.json()
-        assert imported_body["index_status"] == "ready"
+        assert imported_body["index_status"] == "queued"
 
+        # 模拟持久化 Worker 领取任务；HTTP 请求本身不执行耗时索引。
+        assert documents.indexer.refresh_queued() == 1
         index = client.get(
             f"/api/documents/{imported_body['document_id']}/index",
             headers=headers,

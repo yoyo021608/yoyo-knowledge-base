@@ -19,6 +19,7 @@ export type {
 } from "./auth";
 export {
   archiveDocument,
+  checkDocumentSource,
   createBatchImport,
   createDocumentRelation,
   createTag,
@@ -33,6 +34,7 @@ export {
   getDocumentVersion,
   importDocument,
   importDocumentFile,
+  isDocumentIndexPending,
   listDocumentRelations,
   listDocuments,
   listDocumentVersions,
@@ -50,6 +52,7 @@ export {
 export type {
   BatchJobResult,
   DocumentDetail,
+  DocumentIndexStatus,
   DocumentInput,
   DocumentKnowledge,
   DocumentListFilters,
@@ -65,6 +68,7 @@ export type {
   SearchHit,
   SearchMode,
   SourceSnapshot,
+  SourceChange,
   SourceType,
   StoredFilePayload,
   Tag,

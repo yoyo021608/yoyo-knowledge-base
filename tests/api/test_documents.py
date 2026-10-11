@@ -51,6 +51,8 @@ def test_documents_http_flow_uses_authenticated_identity(tmp_path: Path) -> None
     )
     assert imported.status_code == 201
     document_id = imported.json()["document_id"]
+    assert imported.json()["index_status"] == "queued"
+    assert documents.indexer.refresh_queued() == 1
     assert (
         client.get(f"/api/documents/{document_id}", headers=bob_headers).status_code
         == 404

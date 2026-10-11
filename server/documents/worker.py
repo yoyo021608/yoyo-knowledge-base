@@ -5,6 +5,7 @@ import logging
 from contextlib import suppress
 
 from server.documents.indexing import DocumentIndexer
+from server.documents.source_changes import SourceChangeManager
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -27,12 +28,17 @@ class DocumentIndexWorker:
         """停止扫描并等待当前处理安全退出。"""
         self._stopped.set()
         if self._task is not None:
-            self._task.cancel()
+            # 等当前 to_thread 索引安全结束，避免数据库先于工作线程关闭。
             with suppress(asyncio.CancelledError):
                 await self._task
             self._task = None
 
     async def _run(self) -> None:
+        try:
+            await asyncio.to_thread(self._indexer.requeue_interrupted)
+        except Exception:
+            # 恢复扫描失败时保留数据库事实，随后正常轮询会继续重试 queued 任务。
+            _LOGGER.exception("documents.index_worker.recovery_failed")
         while not self._stopped.is_set():
             try:
                 await asyncio.to_thread(self._indexer.refresh_queued)
@@ -45,3 +51,40 @@ class DocumentIndexWorker:
                 )
             except TimeoutError:
                 continue
+
+
+class SourceWatchWorker:
+    """低频检查网页来源，使用 documents 的版本规则发布变化。"""
+
+    def __init__(
+        self, changes: SourceChangeManager, interval_seconds: float = 3600
+    ) -> None:
+        self._changes = changes
+        self._interval_seconds = interval_seconds
+        self._stopped = asyncio.Event()
+        self._task: asyncio.Task[None] | None = None
+
+    def start(self) -> None:
+        if self._task is None:
+            self._task = asyncio.create_task(self._run(), name="source-watch-worker")
+
+    async def close(self) -> None:
+        self._stopped.set()
+        if self._task is not None:
+            with suppress(asyncio.CancelledError):
+                await self._task
+            self._task = None
+
+    async def _run(self) -> None:
+        while not self._stopped.is_set():
+            try:
+                await asyncio.wait_for(
+                    self._stopped.wait(), timeout=self._interval_seconds
+                )
+                break
+            except TimeoutError:
+                pass
+            try:
+                await asyncio.to_thread(self._changes.check_due)
+            except Exception:
+                _LOGGER.exception("documents.source_watch.scan_failed")

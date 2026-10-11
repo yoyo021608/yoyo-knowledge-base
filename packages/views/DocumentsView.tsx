@@ -5,6 +5,7 @@ import {
   getDocument,
   listDocuments,
   listDocumentVersions,
+  isDocumentIndexPending,
   listTags,
   listTopics,
   type DocumentDetail,
@@ -93,6 +94,25 @@ export function DocumentsView({ apiBaseUrl, accessToken }: Props) {
       setMessage(error instanceof Error ? error.message : "读取知识库失败"),
     );
   }, [load]);
+
+  useEffect(() => {
+    const selectedId = detail?.document.id;
+    const selectedPending = detail
+      ? isDocumentIndexPending(detail.document.indexStatus)
+      : false;
+    const listPending = documents.some((document) =>
+      isDocumentIndexPending(document.indexStatus),
+    );
+    if (!selectedPending && !listPending) return;
+
+    // HTTP 只负责排队，页面短轮询持久化状态，不依赖临时内存任务结果。
+    const timer = window.setTimeout(() => {
+      void load(selectedId).catch((error: unknown) =>
+        setMessage(error instanceof Error ? error.message : "刷新索引状态失败"),
+      );
+    }, 1_500);
+    return () => window.clearTimeout(timer);
+  }, [detail, documents, load]);
 
   async function download(format: "markdown" | "json", documentId?: string): Promise<void> {
     try {

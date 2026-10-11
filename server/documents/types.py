@@ -106,6 +106,9 @@ class DocumentView:
     tags: tuple[str, ...]
     created_at: datetime
     updated_at: datetime
+    source_checked_at: datetime | None = None
+    source_changed_at: datetime | None = None
+    source_change_diff: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,6 +144,16 @@ class DocumentDetail:
 
     document: DocumentView
     version: DocumentVersionView
+
+
+@dataclass(frozen=True, slots=True)
+class SourceChangeView:
+    """网页复查结果；没有变化时不创建版本。"""
+
+    changed: bool
+    previous_version_id: str
+    current_version_id: str
+    diff: str
 
 
 @dataclass(frozen=True, slots=True)

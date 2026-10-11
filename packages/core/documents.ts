@@ -4,6 +4,12 @@ import { buildApiUrl } from "./client";
 
 export type SourceType = "note" | "markdown" | "web" | "file";
 export type SearchMode = "keyword" | "full_text" | "vector" | "hybrid";
+export type DocumentIndexStatus = "queued" | "processing" | "ready" | "failed";
+
+/** queued 和 processing 表示后台索引尚未形成可检索版本。 */
+export function isDocumentIndexPending(status: DocumentIndexStatus): boolean {
+  return status === "queued" || status === "processing";
+}
 
 export interface DocumentSummary {
   id: string;
@@ -13,10 +19,13 @@ export interface DocumentSummary {
   isFavorite: boolean;
   currentVersion: number;
   currentVersionId: string;
-  indexStatus: string;
+  indexStatus: DocumentIndexStatus;
   tags: string[];
   createdAt: string;
   updatedAt: string;
+  sourceCheckedAt: string | null;
+  sourceChangedAt: string | null;
+  sourceChangeDiff: string | null;
 }
 
 export interface SourceSnapshot {
@@ -34,7 +43,7 @@ export interface DocumentVersion {
   version: number;
   titleSnapshot: string;
   contentSnapshot: string;
-  indexStatus: string;
+  indexStatus: DocumentIndexStatus;
   indexError: string | null;
   source: SourceSnapshot;
   createdAt: string;
@@ -43,6 +52,31 @@ export interface DocumentVersion {
 export interface DocumentDetail {
   document: DocumentSummary;
   version: DocumentVersion;
+}
+
+export interface SourceChange {
+  changed: boolean;
+  previousVersionId: string;
+  currentVersionId: string;
+  diff: string;
+}
+
+/** 检查网页来源并在正文变化时创建可追溯的新版本。 */
+export async function checkDocumentSource(
+  baseUrl: string,
+  accessToken: string,
+  documentId: string,
+): Promise<SourceChange> {
+  const raw = await request<Record<string, unknown>>(
+    baseUrl, accessToken,
+    `/api/documents/${encodeURIComponent(documentId)}/source/check`, "POST",
+  );
+  return {
+    changed: Boolean(raw.changed),
+    previousVersionId: String(raw.previous_version_id),
+    currentVersionId: String(raw.current_version_id),
+    diff: String(raw.diff ?? ""),
+  };
 }
 
 export interface DocumentInput {
@@ -66,7 +100,7 @@ export interface DocumentUpdateInput {
 export interface ImportResult {
   documentId: string;
   versionId: string;
-  indexStatus: string;
+  indexStatus: DocumentIndexStatus;
 }
 
 export interface StoredFilePayload {
@@ -221,10 +255,13 @@ function documentOf(raw: Record<string, unknown>): DocumentSummary {
     isFavorite: Boolean(raw.is_favorite),
     currentVersion: Number(raw.current_version),
     currentVersionId: String(raw.current_version_id),
-    indexStatus: String(raw.index_status),
+    indexStatus: raw.index_status as DocumentIndexStatus,
     tags: raw.tags as string[],
     createdAt: String(raw.created_at),
     updatedAt: String(raw.updated_at),
+    sourceCheckedAt: (raw.source_checked_at as string | null) ?? null,
+    sourceChangedAt: (raw.source_changed_at as string | null) ?? null,
+    sourceChangeDiff: (raw.source_change_diff as string | null) ?? null,
   };
 }
 
@@ -246,7 +283,7 @@ function versionOf(raw: Record<string, unknown>): DocumentVersion {
     version: Number(raw.version),
     titleSnapshot: String(raw.title_snapshot),
     contentSnapshot: String(raw.content_snapshot),
-    indexStatus: String(raw.index_status),
+    indexStatus: raw.index_status as DocumentIndexStatus,
     indexError: (raw.index_error as string | null) ?? null,
     source: sourceOf(raw.source as Record<string, unknown>),
     createdAt: String(raw.created_at),
@@ -280,7 +317,7 @@ export async function importDocument(
   return {
     documentId: String(raw.document_id),
     versionId: String(raw.version_id),
-    indexStatus: String(raw.index_status),
+    indexStatus: raw.index_status as DocumentIndexStatus,
   };
 }
 
@@ -307,7 +344,7 @@ export async function importDocumentFile(
   return {
     documentId: String(raw.document_id),
     versionId: String(raw.version_id),
-    indexStatus: String(raw.index_status),
+    indexStatus: raw.index_status as DocumentIndexStatus,
   };
 }
 
@@ -513,14 +550,14 @@ export async function retryDocumentIndex(
   baseUrl: string,
   accessToken: string,
   documentId: string,
-): Promise<string> {
+): Promise<DocumentIndexStatus> {
   const raw = await request<Record<string, unknown>>(
     baseUrl,
     accessToken,
     `/api/documents/${encodeURIComponent(documentId)}/index/retry`,
     "POST",
   );
-  return String(raw.status);
+  return raw.status as DocumentIndexStatus;
 }
 
 export function deleteDocument(

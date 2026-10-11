@@ -66,7 +66,11 @@ def test_topics_tags_favorites_and_relations_keep_ownership_boundaries(
 def test_batch_failure_is_isolated_and_success_is_not_duplicated_on_retry(
     document_context: tuple[Database, DocumentsModule],
 ) -> None:
-    _database, module = document_context
+    database, module = document_context
+    # SQLite 默认不检查外键。这里主动开启，覆盖 PostgreSQL 要求父批次先落库
+    # 再写入批次条目的真实约束顺序。
+    with database.engine.connect() as connection:
+        connection.exec_driver_sql("PRAGMA foreign_keys=ON")
     result = module.batch_importer.create_job(
         BatchImportInput(
             user_id="user-a",

@@ -44,7 +44,6 @@ from server.documents.types import (
     DocumentVersionView,
     DocumentView,
     IndexStatus,
-    RefreshRequest,
     SourceInput,
     SourceType,
 )
@@ -142,6 +141,9 @@ def document_view(session: Session, document: Document) -> DocumentView:
         tags=tags,
         created_at=document.created_at,
         updated_at=document.updated_at,
+        source_checked_at=document.source_checked_at,
+        source_changed_at=document.source_changed_at,
+        source_change_diff=document.source_change_diff,
     )
 
 
@@ -163,16 +165,14 @@ def version_view(
 
 
 class DocumentEditor:
-    """读取和改变文档生命周期，并将新版本交给索引器刷新。"""
+    """读取和改变文档生命周期，并为新版本持久化索引任务。"""
 
     def __init__(
         self,
         database: Database,
-        indexer: DocumentIndexer,
         file_storage: LocalFileStorage | None = None,
     ) -> None:
         self._database = database
-        self._indexer = indexer
         self._file_storage = file_storage
 
     def get(self, document_id: str, user_id: str) -> DocumentDetail:
@@ -241,12 +241,19 @@ class DocumentEditor:
         document_id: str,
         user_id: str,
         update_input: DocumentUpdateInput,
+        *,
+        expected_version_id: str | None = None,
     ) -> DocumentVersionView:
-        """原子创建新版本和 queued 状态，再刷新新版本索引。"""
+        """原子创建新版本和 queued 索引任务，不在请求内执行耗时索引。"""
         title = clean_title(update_input.title)
         content = clean_content(update_input.content)
         with self._database.transaction() as session:
             document = require_document(session, document_id, user_id)
+            if (
+                expected_version_id is not None
+                and document.current_version_id != expected_version_id
+            ):
+                raise InvalidDocumentInput("文档已更新，请重新检查来源")
             require_topic(session, update_input.topic_id, user_id)
             previous_source = session.get(SourceSnapshot, document.current_version_id)
             if previous_source is None:
@@ -301,14 +308,6 @@ class DocumentEditor:
             document.updated_at = now
             set_document_tags(session, document.id, user_id, update_input.tags)
 
-        try:
-            self._indexer.refresh(
-                RefreshRequest(document_id=document_id, version_id=version_id)
-            )
-        except Exception:
-            # 新版本和 queued 任务已经提交；索引器会把当前版本标记为 failed。
-            # 保留版本并返回失败状态，让用户可以从同一版本显式重试索引。
-            pass
         return self.get_version(document_id, version_id, user_id)
 
     def get_version(

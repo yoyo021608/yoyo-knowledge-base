@@ -217,6 +217,8 @@ type KnowledgeOrganization interface {
 
 来源正文与 DocumentVersion 一同保留，不随每条 SearchHit 返回；Agent 仅接收选中片段、标题、网址和版本标识。
 
+网页来源可由用户主动复查，后台每小时扫描到期资料；同一份资料默认至少间隔 24 小时。正文未变化时不增加版本；变化时记录提醒和差异，由文档编辑建立新版本并排队索引。
+
 ~~~go
 type SourceInput struct {
     UserID string
@@ -241,11 +243,25 @@ type SourceManager interface {
     CaptureSource(input SourceInput) (SourceSnapshot, error) // 仅由本模块录入或编辑调用，随对应版本幂等保存来源快照。
     GetSource(documentID string, userID string) (SourceSnapshot, error) // 查看文档来源信息。
 }
+
+type SourceChangeResult struct {
+    Changed bool
+    PreviousVersionID string
+    CurrentVersionID string
+    Diff string
+}
+
+type SourceChangeManager interface {
+    Check(documentID string, userID string) (SourceChangeResult, error) // 校验归属并复查网页，变化时建立新版本。
+    CheckDue(limit int, intervalHours int) int // 后台限量扫描到期网页，单条失败不阻塞其他资料。
+}
 ~~~
 
 ### 索引刷新（Index Refresh）
 
 索引刷新负责从最新版本生成可检索内容并更新索引；不负责改变文档标题、专题、收藏和版本关系。
+
+同一 Embedding 模型标识下，若前一版本已就绪，新版本索引可复用正文完全相同片段的向量；历史片段及引用保持不变。
 
 ~~~go
 type RefreshRequest struct {
@@ -342,6 +358,11 @@ BatchImporter.RetryFailed(...)
 DocumentEditor.List(...)
 DocumentEditor.Get(...)
 SourceManager.GetSource(...)
+
+// 用户复查网页来源；后台也会限量扫描到期网页
+SourceChangeManager.Check(...)
+SourceChangeManager.CheckDue(...)
+DocumentIndexPort.GetRefreshStatus(...)
 
 // 从历史引用查看具体版本
 DocumentEditor.GetVersion(...)

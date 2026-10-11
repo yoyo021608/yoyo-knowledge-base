@@ -13,6 +13,7 @@ from server.documents.indexing import DocumentIndexer
 from server.documents.knowledge import DocumentKnowledge
 from server.documents.organization import KnowledgeOrganization
 from server.documents.search import DocumentSearch
+from server.documents.source_changes import SourceChangeManager
 from server.documents.sources import SourceManager
 from server.infra.content import DocumentContentLoader
 from server.infra.database import Database
@@ -29,6 +30,7 @@ class DocumentsModule:
     editor: DocumentEditor
     organization: KnowledgeOrganization
     sources: SourceManager
+    source_changes: SourceChangeManager
     indexer: DocumentIndexer
     search: DocumentSearch
     knowledge: DocumentKnowledge
@@ -45,16 +47,15 @@ class DocumentsModule:
         """用同一数据库装配互相协作但职责独立的文档能力。"""
         embedding_client = embeddings or FakeEmbeddingClient()
         indexer = DocumentIndexer(database, embedding_client)
-        editor = DocumentEditor(database, indexer, file_storage)
-        single_importer = SingleImporter(
-            database, indexer, file_storage, content_loader
-        )
+        editor = DocumentEditor(database, file_storage)
+        single_importer = SingleImporter(database, file_storage, content_loader)
         return cls(
             single_importer=single_importer,
             batch_importer=BatchImporter(database, single_importer),
             editor=editor,
             organization=KnowledgeOrganization(database),
             sources=SourceManager(database),
+            source_changes=SourceChangeManager(database, editor, content_loader),
             indexer=indexer,
             search=DocumentSearch(database, embedding_client),
             knowledge=DocumentKnowledge(database),
