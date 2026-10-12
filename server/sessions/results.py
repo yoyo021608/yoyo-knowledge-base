@@ -104,7 +104,7 @@ class InteractionResults:
             raise InvalidSessionInput("完成的任务必须包含结果")
         payload = _json(result) if result is not None else None
         with self._database.transaction() as db:
-            owner = require_session(db, session_id, user_id)
+            owner = require_session(db, session_id, user_id, for_update=True)
             existing = db.scalar(
                 select(InteractionResult).where(
                     InteractionResult.session_id == session_id,
@@ -190,7 +190,7 @@ class InteractionResults:
             raise InvalidSessionInput("练习记录字段不能为空")
         snapshot = _json(mastery_snapshot)
         with self._database.transaction() as db:
-            owner = require_session(db, session_id, user_id)
+            owner = require_session(db, session_id, user_id, for_update=True)
             existing = db.scalar(
                 select(PracticeRecord).where(
                     PracticeRecord.session_id == session_id,
@@ -257,7 +257,9 @@ class InteractionResults:
         if rating not in {-1, 1}:
             raise InvalidSessionInput("反馈评分只能是 -1 或 1")
         with self._database.transaction() as db:
-            require_session(db, session_id, user_id)
+            owner = require_session(db, session_id, user_id, for_update=True)
+            if owner.status == "deleting":
+                raise SessionDeleting("会话正在删除，不能写入反馈")
             # 验证目标归属，避免用反馈接口探测或评价其他用户的数据。
             if target_type in {"message", "citation"}:
                 if target_type == "message":

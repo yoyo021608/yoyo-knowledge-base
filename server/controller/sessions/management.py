@@ -10,7 +10,7 @@ from server.controller.agent.shared import agent_error, get_agent
 from server.controller.sessions.schemas import SessionRequest, SessionResponse
 from server.controller.sessions.shared import get_sessions, schema_of, session_error
 from server.controller.users import require_identity
-from server.sessions.errors import SessionsError
+from server.sessions.errors import InvalidSessionInput, SessionsError
 from server.sessions.module import SessionsModule
 from server.users.types import IdentityContext
 
@@ -94,6 +94,8 @@ def finish_delete(
 ) -> Response:
     try:
         session = sessions.management.get(session_id, identity.user_id)
+        if session.status != "deleting":
+            raise InvalidSessionInput("必须先将会话标记为删除中")
         agent.runs.purge_session_runs(session_id, identity.user_id)
         if session.active_run_id is not None:
             sessions.management.release_run(

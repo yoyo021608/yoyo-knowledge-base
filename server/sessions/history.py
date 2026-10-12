@@ -99,7 +99,7 @@ class MessageHistory:
                 )
             normalized_citations.append(normalized)
         with self._database.transaction() as db:
-            owner = require_session(db, session_id, user_id)
+            owner = require_session(db, session_id, user_id, for_update=True)
             existing = db.scalar(
                 select(Message).where(
                     Message.session_id == session_id,

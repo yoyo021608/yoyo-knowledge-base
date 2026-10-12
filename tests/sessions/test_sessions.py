@@ -143,3 +143,31 @@ def test_results_practice_and_feedback_remain_sessions_responsibility(
     assert retried_practice.id == practice.id
     assert released_retry.id == practice.id
     assert feedback.rating == 1
+
+
+def test_stale_run_release_cannot_clear_new_claim(
+    sessions_context: tuple[Database, SessionsModule],
+) -> None:
+    _, module = sessions_context
+    conversation = module.management.create("user-a")
+    module.management.try_claim_run(conversation.id, "user-a", "run-old")
+    module.management.release_run(conversation.id, "user-a", "run-old")
+    module.management.try_claim_run(conversation.id, "user-a", "run-new")
+
+    module.management.release_run(conversation.id, "user-a", "run-old")
+    assert module.management.get(conversation.id, "user-a").active_run_id == "run-new"
+
+
+def test_deleting_session_rejects_feedback_writes(
+    sessions_context: tuple[Database, SessionsModule],
+) -> None:
+    _, module = sessions_context
+    conversation = module.management.create("user-a")
+    module.management.try_claim_run(conversation.id, "user-a", "run-1")
+    message = module.history.save_answer(conversation.id, "user-a", "run-1", "回答")
+    module.management.begin_delete(conversation.id, "user-a")
+
+    with pytest.raises(SessionDeleting):
+        module.results.save_feedback(
+            conversation.id, "user-a", "message", message.id, 1, "迟到反馈"
+        )
