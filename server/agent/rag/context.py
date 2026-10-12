@@ -61,7 +61,7 @@ class ContextAssembler:
                 max(0, remaining_evidence - wrapper_cost - _MESSAGE_OVERHEAD),
             )
             if not snippet:
-                break
+                continue
             selected_sources.append(
                 SearchHitContext(
                     document_id=source.document_id,
@@ -80,6 +80,9 @@ class ContextAssembler:
                 )
                 + _MESSAGE_OVERHEAD
             )
+
+        if input_value.search_hits and not selected_sources:
+            raise InputTooLong("证据预算不足以放入可引用片段")
 
         messages = tuple(selected_history) + (
             MessageContext("user", input_value.question),

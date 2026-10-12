@@ -2,11 +2,13 @@
 
 import re
 
+from server.agent.errors import AnswerValidationError
 from server.agent.rag.context import render_evidence
 from server.agent.types import AnswerCitation, AnswerResult, ContextPacket
 from server.infra.chat import ChatClient, ChatInput
 
-_CITATION_MARKER = re.compile(r"【证据\s*(\d+)(?:｜[^】]*)?】")
+_CITATION_MARKER = re.compile(r"【证据\s*([^】]*)】")
+_CITATION_INDEX = re.compile(r"(\d+)(?:｜.*)?")
 
 
 class AnswerGenerator:
@@ -25,11 +27,18 @@ class AnswerGenerator:
         text = self._chat.complete(
             context.system_prompt, messages, self._max_output_tokens
         ).strip()
-        referenced = {
-            int(value)
-            for value in _CITATION_MARKER.findall(text)
-            if 1 <= int(value) <= len(context.sources)
-        }
+        labels = _CITATION_MARKER.findall(text)
+        parsed = tuple(_CITATION_INDEX.fullmatch(label.strip()) for label in labels)
+        if (
+            not _CITATION_MARKER.sub("", text).strip()
+            or not parsed
+            or any(
+                match is None or not 1 <= int(match.group(1)) <= len(context.sources)
+                for match in parsed
+            )
+        ):
+            raise AnswerValidationError("模型回答缺少有效内容或证据引用")
+        referenced = {int(match.group(1)) for match in parsed if match is not None}
         citations = tuple(
             AnswerCitation(
                 document_id=source.document_id,
