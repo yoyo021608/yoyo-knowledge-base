@@ -11,7 +11,7 @@ from server.controller.agent import get_agent
 from server.controller.sessions import get_sessions
 from server.controller.users import get_users
 from server.controller.users.reset_delivery import DevelopmentHttpResetDelivery
-from server.infra.chat import FakeChatClient
+from server.infra.chat import ChatInput, FakeChatClient
 from server.infra.database import Base, Database
 from server.main import create_app
 from server.sessions import SessionsModule
@@ -42,6 +42,17 @@ class ApiDocumentsPort:
     ) -> tuple[SearchHitContext, ...]:
         del user_id, allow_historical_versions
         return hits
+
+
+class CitationlessChatClient:
+    def complete(
+        self,
+        system_prompt: str,
+        messages: tuple[ChatInput, ...],
+        max_output_tokens: int,
+    ) -> str:
+        del system_prompt, messages, max_output_tokens
+        return "没有标注证据的回答"
 
 
 def test_question_flow_saves_answer_and_reuses_request_id(tmp_path: Path) -> None:
@@ -103,4 +114,30 @@ def test_question_flow_saves_answer_and_reuses_request_id(tmp_path: Path) -> Non
     assert (
         sessions.management.get(cancelled_session.id, profile.id).active_run_id is None
     )
+
+    # 模型遗漏引用时不能把无依据的回答保存到会话。
+    failed_agent = AgentModule.create(
+        database, settings, CitationlessChatClient(), ApiDocumentsPort()
+    )
+    application.dependency_overrides[get_agent] = lambda: failed_agent
+    failed_session = sessions.management.create(profile.id, "引用校验")
+    failed_request = client.post(
+        "/api/agent/questions",
+        headers=headers,
+        json={
+            "session_id": failed_session.id,
+            "request_id": "request-http-no-citation",
+            "question": "Python 是什么",
+            "mode": "quick",
+        },
+    )
+    assert failed_request.status_code == 202
+    failed_run = client.get(
+        f"/api/agent/runs/{failed_request.json()['id']}", headers=headers
+    )
+    assert failed_run.json()["status"] == "failed"
+    assert sessions.management.get(failed_session.id, profile.id).active_run_id is None
+    assert [
+        message.role for message in sessions.history.list(failed_session.id, profile.id)
+    ] == ["user"]
     database.close()

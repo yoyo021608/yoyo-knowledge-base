@@ -5,6 +5,7 @@ import time
 from dataclasses import replace
 
 from server.agent.answering import AnswerGenerator
+from server.agent.errors import RetrievalUnavailable
 from server.agent.evaluation import RunEvaluator
 from server.agent.ports import DocumentSearchPort
 from server.agent.prompts import (
@@ -77,11 +78,12 @@ class AgentWorkflows:
                 "rewrite.completed",
             )
 
+        retrieval_started = time.monotonic()
         if snapshot.selected_sources:
             hits = snapshot.selected_sources
         else:
             hits, queries = self._retrieve_for_mode(
-                bundle.run.mode, rewritten.text, user_id, options
+                bundle.run.mode, rewritten.text, user_id, options, retrieval_started
             )
             snapshot = self._runs.save_snapshot(
                 replace(
@@ -97,10 +99,8 @@ class AgentWorkflows:
 
         # 生成前复核版本和访问状态，失效片段不能进入最终回答。
         allow_historical = bundle.run.mode == "comparison" and bool(options.version_ids)
-        validated = self._documents.validate_sources(
-            user_id,
-            hits,
-            allow_historical_versions=allow_historical,
+        validated = self._validate_sources(
+            user_id, hits, allow_historical, retrieval_started
         )
         if len(validated) < len(hits):
             # 来源在生成前失效时只补查一轮，并继续沿用原模式的范围约束。
@@ -116,10 +116,10 @@ class AgentWorkflows:
                 ),
                 limit=12 if bundle.run.mode in {"research", "comparison"} else 8,
             )
-            refreshed = self._documents.validate_sources(
-                user_id,
-                self._retrieval.retrieve(refresh_plan, user_id),
-                allow_historical_versions=allow_historical,
+            self._require_retrieval_budget(retrieval_started)
+            refreshed_hits = self._retrieval.retrieve(refresh_plan, user_id)
+            refreshed = self._validate_sources(
+                user_id, refreshed_hits, allow_historical, retrieval_started
             )
             valid_by_key = {
                 (item.document_id, item.version_id, item.chunk_id): item
@@ -183,8 +183,8 @@ class AgentWorkflows:
         question: str,
         user_id: str,
         options: ExecutionOptions,
+        started: float,
     ) -> tuple[tuple[SearchHitContext, ...], tuple[str, ...]]:
-        started = time.monotonic()
         queries = (
             self._research_queries(question) if mode == "research" else (question,)
         )
@@ -194,8 +194,7 @@ class AgentWorkflows:
             attempt = 0
             current = query
             while True:
-                if time.monotonic() - started > self._retrieval_timeout_seconds:
-                    break
+                self._require_retrieval_budget(started)
                 plan = self._retrieval.plan(
                     current,
                     topic_id=options.topic_id,
@@ -205,6 +204,7 @@ class AgentWorkflows:
                     limit=12 if mode in {"research", "comparison"} else 8,
                 )
                 current_hits = self._retrieval.retrieve(plan, user_id)
+                self._require_retrieval_budget(started)
                 hits.extend(current_hits)
                 completed_queries.append(current)
                 decision = self._evidence.assess(query, tuple(current_hits))
@@ -224,6 +224,28 @@ class AgentWorkflows:
         }
         selected = tuple(sorted(unique.values(), key=lambda value: -value.score)[:24])
         return selected, tuple(completed_queries)
+
+    def _validate_sources(
+        self,
+        user_id: str,
+        hits: tuple[SearchHitContext, ...],
+        allow_historical: bool,
+        started: float,
+    ) -> tuple[SearchHitContext, ...]:
+        """复核仍归 documents；Agent 只限制这一轮读取的总时长。"""
+        self._require_retrieval_budget(started)
+        try:
+            validated = self._documents.validate_sources(
+                user_id, hits, allow_historical_versions=allow_historical
+            )
+        except Exception as exc:
+            raise RetrievalUnavailable("证据来源暂时无法复核") from exc
+        self._require_retrieval_budget(started)
+        return validated
+
+    def _require_retrieval_budget(self, started: float) -> None:
+        if time.monotonic() - started >= self._retrieval_timeout_seconds:
+            raise RetrievalUnavailable("知识检索超时，请稍后重试")
 
     @staticmethod
     def _research_queries(question: str) -> tuple[str, ...]:

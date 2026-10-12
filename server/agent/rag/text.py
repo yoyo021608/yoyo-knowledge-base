@@ -18,9 +18,16 @@ def token_count(text: str) -> int:
 
 
 def take_tokens(text: str, limit: int) -> str:
+    """按实际预算估算截取前缀，长英文串和标点也不能绕过上限。"""
     if limit <= 0:
         return ""
-    matches = list(_TOKEN.finditer(text))
-    if len(matches) <= limit:
+    if token_count(text) <= limit:
         return text.strip()
-    return text[: matches[limit - 1].end()].strip()
+    lower, upper = 0, len(text)
+    while lower < upper:
+        middle = (lower + upper + 1) // 2
+        if token_count(text[:middle]) <= limit:
+            lower = middle
+        else:
+            upper = middle - 1
+    return text[:lower].strip()

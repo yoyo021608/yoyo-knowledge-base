@@ -35,3 +35,7 @@ class InputTooLong(AgentError):
 
 class RetrievalUnavailable(AgentError):
     pass
+
+
+class AnswerValidationError(AgentError):
+    """模型未按已选证据生成可追溯的引用。"""

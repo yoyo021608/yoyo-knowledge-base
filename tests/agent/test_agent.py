@@ -1,18 +1,29 @@
 """验证 Agent 的模块边界、状态恢复和四模式共用编排基础。"""
 
 import json
+import time
 from collections.abc import Iterator
 from dataclasses import replace
 
 import pytest
 
-from server.agent.errors import AgentRunCancelled, AgentRunConflict, InvalidAgentInput
+from server.agent.answering import AnswerGenerator
+from server.agent.errors import (
+    AgentRunCancelled,
+    AgentRunConflict,
+    AnswerValidationError,
+    InputTooLong,
+    InvalidAgentInput,
+    RetrievalUnavailable,
+)
 from server.agent.module import AgentModule
 from server.agent.rag.context import ContextAssembler
 from server.agent.rag.retrieval import RetrievalOrchestrator
+from server.agent.rag.text import take_tokens, token_count
 from server.agent.types import (
     ContextBudget,
     ContextInput,
+    ContextPacket,
     ExecutionOptions,
     MessageContext,
     RetrievalPlan,
@@ -20,7 +31,7 @@ from server.agent.types import (
     ToolCall,
 )
 from server.config import Settings
-from server.infra.chat import FakeChatClient
+from server.infra.chat import ChatInput, FakeChatClient
 from server.infra.database import Base, Database
 
 
@@ -204,11 +215,139 @@ def test_context_budget_counts_evidence_headers_and_message_overhead() -> None:
                     "d", "v", "很长的证据标题", "证据正文", "c", None, 1.0
                 ),
             ),
-            budget=ContextBudget(80, 10, 10, 10, 12),
+            budget=ContextBudget(80, 10, 10, 10, 24),
         ),
         "system",
     )
     assert packet.input_tokens <= 60
+    assert packet.sources
+
+
+def test_context_skips_oversized_header_and_keeps_a_smaller_source() -> None:
+    packet = ContextAssembler().build(
+        ContextInput(
+            question="问题",
+            history=(),
+            search_hits=(
+                SearchHitContext("d1", "v1", "很长" * 50, "正文", "c1", None, 1.0),
+                SearchHitContext("d2", "v2", "短标题", "可用资料", "c2", None, 0.8),
+            ),
+            budget=ContextBudget(100, 10, 10, 0, 24),
+        ),
+        "system",
+    )
+    assert [source.chunk_id for source in packet.sources] == ["c2"]
+    assert packet.input_tokens <= 80
+    assert token_count(take_tokens("averylongenglishword" * 10, 5)) <= 5
+
+
+def test_context_refuses_to_generate_without_room_for_evidence() -> None:
+    with pytest.raises(InputTooLong, match="证据预算"):
+        ContextAssembler().build(
+            ContextInput(
+                question="问题",
+                history=(),
+                search_hits=(
+                    SearchHitContext("d", "v", "长标题" * 20, "正文", "c", None, 1.0),
+                ),
+                budget=ContextBudget(80, 10, 10, 0, 12),
+            ),
+            "system",
+        )
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "没有引用的结论",
+        "结论【证据 1】【证据 2】",
+        "结论【证据 1】【证据 未知】",
+        "【证据 1】",
+    ],
+)
+def test_answer_rejects_missing_or_unknown_citations(answer: str) -> None:
+    class StaticChatClient:
+        def complete(
+            self,
+            system_prompt: str,
+            messages: tuple[ChatInput, ...],
+            max_output_tokens: int,
+        ) -> str:
+            del system_prompt, messages, max_output_tokens
+            return answer
+
+    packet = ContextPacket(
+        "system",
+        (MessageContext("user", "问题"),),
+        (SearchHitContext("d1", "v1", "资料", "正文", "c1", None, 0.9),),
+        20,
+    )
+    with pytest.raises(AnswerValidationError):
+        AnswerGenerator(StaticChatClient(), 100).generate(packet)
+
+
+def test_retrieval_timeout_is_a_failure_not_insufficient_evidence() -> None:
+    class SlowDocumentsPort(FakeDocumentsPort):
+        def search(
+            self, user_id: str, plan: RetrievalPlan
+        ) -> tuple[SearchHitContext, ...]:
+            time.sleep(0.02)
+            return super().search(user_id, plan)
+
+    database = Database("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(database.engine)
+    try:
+        settings = Settings(
+            llm_provider="fake",
+            database_url="sqlite+pysqlite:///:memory:",
+            agent_retrieval_timeout_seconds=0.001,
+        )
+        module = AgentModule.create(
+            database, settings, FakeChatClient(), SlowDocumentsPort()
+        )
+        created = module.runs.create_run("s1", "u1", "slow", "quick", _input(module))
+        running = module.runs.execute_run(created.run.id, "u1", "message-slow")
+        with pytest.raises(RetrievalUnavailable, match="超时"):
+            module.workflows.execute(running, "u1", ExecutionOptions())
+    finally:
+        database.close()
+
+
+def test_source_validation_uses_the_same_retrieval_budget() -> None:
+    class SlowValidationPort(FakeDocumentsPort):
+        def validate_sources(
+            self,
+            user_id: str,
+            hits: tuple[SearchHitContext, ...],
+            *,
+            allow_historical_versions: bool = False,
+        ) -> tuple[SearchHitContext, ...]:
+            time.sleep(0.02)
+            return super().validate_sources(
+                user_id,
+                hits,
+                allow_historical_versions=allow_historical_versions,
+            )
+
+    database = Database("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(database.engine)
+    try:
+        settings = Settings(
+            llm_provider="fake",
+            database_url="sqlite+pysqlite:///:memory:",
+            agent_retrieval_timeout_seconds=0.001,
+        )
+        module = AgentModule.create(
+            database, settings, FakeChatClient(), SlowValidationPort()
+        )
+        created = module.runs.create_run(
+            "s1", "u1", "slow-validation", "quick", _input(module)
+        )
+        running = module.runs.execute_run(created.run.id, "u1", "message-validation")
+        with pytest.raises(RetrievalUnavailable, match="超时"):
+            module.workflows.execute(running, "u1", ExecutionOptions())
+    finally:
+        database.close()
 
 
 def test_document_tool_ignores_model_supplied_user_identity(
