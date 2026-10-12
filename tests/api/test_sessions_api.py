@@ -1,8 +1,11 @@
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 from fastapi.testclient import TestClient
 
 from server.config import Settings
+from server.controller.agent import get_agent
 from server.controller.sessions import get_sessions
 from server.controller.users import get_users
 from server.controller.users.reset_delivery import DevelopmentHttpResetDelivery
@@ -87,4 +90,20 @@ def test_sessions_http_flow_keeps_identity_and_module_boundaries(
     )
     replay = client.get(f"/api/sessions/{session_id}/messages", headers=alice_headers)
     assert replay.json()[0]["citations"][0]["quote"] == "原始证据"
+
+    # 跳过第一阶段不能先清理 Agent Run；按两阶段调用则正常完成。
+    purge_runs = Mock()
+    app.dependency_overrides[get_agent] = lambda: SimpleNamespace(
+        runs=SimpleNamespace(purge_session_runs=purge_runs)
+    )
+    direct_delete = client.delete(f"/api/sessions/{session_id}", headers=alice_headers)
+    assert direct_delete.status_code == 400
+    purge_runs.assert_not_called()
+    assert sessions.management.get(session_id, alice.profile.id).status == "active"
+
+    started = client.post(f"/api/sessions/{session_id}/delete", headers=alice_headers)
+    assert started.status_code == 202
+    finished = client.delete(f"/api/sessions/{session_id}", headers=alice_headers)
+    assert finished.status_code == 204
+    purge_runs.assert_called_once_with(session_id, alice.profile.id)
     database.close()

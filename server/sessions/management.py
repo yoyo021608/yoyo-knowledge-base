@@ -30,12 +30,16 @@ def _view(value: ConversationSession) -> SessionView:
     )
 
 
-def require_session(db: Session, session_id: str, user_id: str) -> ConversationSession:
-    value = db.scalar(
-        select(ConversationSession).where(
-            ConversationSession.id == session_id, ConversationSession.user_id == user_id
-        )
+def require_session(
+    db: Session, session_id: str, user_id: str, *, for_update: bool = False
+) -> ConversationSession:
+    """写入时锁定会话，使删除标记与迟到写入按顺序生效。"""
+    statement = select(ConversationSession).where(
+        ConversationSession.id == session_id, ConversationSession.user_id == user_id
     )
+    if for_update:
+        statement = statement.with_for_update()
+    value = db.scalar(statement)
     if value is None:
         raise SessionNotFound("会话不存在或无权访问")
     return value
@@ -82,7 +86,7 @@ class SessionManagement:
         if not clean_name or len(clean_name) > 120:
             raise InvalidSessionInput("会话名称长度必须为 1 到 120 个字符")
         with self._database.transaction() as db:
-            value = require_session(db, session_id, user_id)
+            value = require_session(db, session_id, user_id, for_update=True)
             if value.status == "deleting":
                 raise SessionDeleting("会话正在删除")
             value.name = clean_name
@@ -93,7 +97,7 @@ class SessionManagement:
         if not run_id.strip():
             raise InvalidSessionInput("run_id 不能为空")
         with self._database.transaction() as db:
-            value = require_session(db, session_id, user_id)
+            value = require_session(db, session_id, user_id, for_update=True)
             if value.status == "deleting":
                 raise SessionDeleting("会话正在删除")
             if value.active_run_id == run_id:
@@ -125,22 +129,20 @@ class SessionManagement:
 
     def release_run(self, session_id: str, user_id: str, run_id: str) -> None:
         with self._database.transaction() as db:
-            value = db.scalar(
-                select(ConversationSession).where(
+            # 用条件更新保证旧 Run 的迟到释放不会清掉后来领取的关联。
+            db.execute(
+                update(ConversationSession)
+                .where(
                     ConversationSession.id == session_id,
                     ConversationSession.user_id == user_id,
+                    ConversationSession.active_run_id == run_id,
                 )
+                .values(active_run_id=None, updated_at=datetime.now(UTC))
             )
-            if value is None:
-                return
-            # 旧 Run 的迟到释放不能清掉后续 Run 的关联。
-            if value.active_run_id == run_id:
-                value.active_run_id = None
-                value.updated_at = datetime.now(UTC)
 
     def begin_delete(self, session_id: str, user_id: str) -> None:
         with self._database.transaction() as db:
-            value = require_session(db, session_id, user_id)
+            value = require_session(db, session_id, user_id, for_update=True)
             value.status = "deleting"
             value.updated_at = datetime.now(UTC)
 
