@@ -1,7 +1,9 @@
 """验证提问入口只协调公开模块能力，并能幂等保存最终回答。"""
 
+import logging
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from server.agent.module import AgentModule
@@ -11,7 +13,7 @@ from server.controller.agent import get_agent
 from server.controller.sessions import get_sessions
 from server.controller.users import get_users
 from server.controller.users.reset_delivery import DevelopmentHttpResetDelivery
-from server.infra.chat import ChatInput, FakeChatClient
+from server.infra.chat import ChatInput, FakeChatClient, TracedChatClient
 from server.infra.database import Base, Database
 from server.main import create_app
 from server.sessions import SessionsModule
@@ -55,7 +57,9 @@ class CitationlessChatClient:
         return "没有标注证据的回答"
 
 
-def test_question_flow_saves_answer_and_reuses_request_id(tmp_path: Path) -> None:
+def test_question_flow_saves_answer_and_reuses_request_id(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     database = Database("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(database.engine)
     settings = Settings(
@@ -66,7 +70,9 @@ def test_question_flow_saves_answer_and_reuses_request_id(tmp_path: Path) -> Non
     )
     users = UsersModule.create(database, settings, DevelopmentHttpResetDelivery())
     sessions = SessionsModule.create(database)
-    agent = AgentModule.create(database, settings, FakeChatClient(), ApiDocumentsPort())
+    agent = AgentModule.create(
+        database, settings, TracedChatClient(FakeChatClient()), ApiDocumentsPort()
+    )
     profile = users.registration.register("alice@example.com", "Correct-Horse-1!")
     login = users.login_sessions.login("alice@example.com", "Correct-Horse-1!")
     session = sessions.management.create(profile.id, "知识问答")
@@ -84,12 +90,18 @@ def test_question_flow_saves_answer_and_reuses_request_id(tmp_path: Path) -> Non
         "mode": "quick",
     }
 
-    first = client.post("/api/agent/questions", headers=headers, json=body)
+    with caplog.at_level(logging.INFO, logger="yoyo.model"):
+        first = client.post("/api/agent/questions", headers=headers, json=body)
     assert first.status_code == 202
     assert first.json()["status"] == "queued"
     completed = client.get(f"/api/agent/runs/{first.json()['id']}", headers=headers)
     assert completed.status_code == 200
     assert completed.json()["status"] == "completed"
+    assert any(
+        record.run_id == first.json()["id"]
+        for record in caplog.records
+        if record.msg.startswith("model.complete.succeeded")
+    )
 
     repeated = client.post("/api/agent/questions", headers=headers, json=body)
     assert repeated.status_code == 202

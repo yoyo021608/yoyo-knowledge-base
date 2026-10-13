@@ -11,6 +11,7 @@ from server.infra.embeddings import (
     FakeEmbeddingClient,
     create_embedding_client,
 )
+from server.infra.tracing import trace_run
 
 
 def test_fake_embeddings_are_stable_normalized_and_fixed_size() -> None:
@@ -68,12 +69,17 @@ def test_real_embedding_logs_reported_tokens_without_source_text(
     client = create_embedding_client(settings)
 
     with caplog.at_level(logging.INFO, logger="yoyo.model"):
-        values = client.embed("私人文档正文")
+        with trace_run("run-embedding"):
+            values = client.embed("私人文档正文")
 
     assert len(values) == EMBEDDING_DIMENSIONS
     trace = next(
-        record for record in caplog.records if record.msg == "embedding.succeeded"
+        record
+        for record in caplog.records
+        if record.msg.startswith("embedding.succeeded")
     )
+    assert trace.run_id == "run-embedding"
+    assert "run_id=run-embedding" in trace.getMessage()
     assert trace.input_tokens == 6
     assert trace.total_tokens == 6
     assert "私人文档正文" not in caplog.text
