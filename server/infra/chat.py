@@ -73,6 +73,18 @@ class OpenAIChatClient:
         text = cast(str, response.output_text).strip()
         if not text:
             raise RuntimeError("模型没有返回文本")
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            # 只记录服务端返回的真实用量，不把字符数冒充 Token。
+            _LOGGER.info(
+                "model.complete.usage",
+                extra={
+                    "model": self._model,
+                    "input_tokens": getattr(usage, "input_tokens", None),
+                    "output_tokens": getattr(usage, "output_tokens", None),
+                    "total_tokens": getattr(usage, "total_tokens", None),
+                },
+            )
         return text
 
 

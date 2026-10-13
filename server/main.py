@@ -1,6 +1,6 @@
 import logging
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,54 +32,55 @@ _LOGGER = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     settings: Settings = application.state.settings
-    resources = InfraResources.create(settings)
-    application.state.infra = resources
-    application.state.users = UsersModule.create(
-        resources.database,
-        settings,
-        create_reset_delivery(settings),
-    )
-    application.state.documents = DocumentsModule.create(
-        resources.database,
-        resources.files,
-        resources.embeddings,
-        resources.document_content,
-    )
-    application.state.sessions = SessionsModule.create(resources.database)
-    application.state.agent = AgentModule.create(
-        resources.database,
-        settings,
-        resources.chat,
-        DocumentsSearchBridge(application.state.documents),
-    )
-    startup_recovered = False
-    try:
-        recover_after_restart(application.state.agent, application.state.sessions)
-        startup_recovered = True
-    except Exception:
-        # 数据库暂不可用时由周期恢复任务重试，不阻止应用完成资源装配。
-        _LOGGER.exception("agent.recovery.startup_failed")
-    index_worker = DocumentIndexWorker(application.state.documents.indexer)
-    import_worker = BatchImportWorker(application.state.documents.batch_importer)
-    source_watch_worker = SourceWatchWorker(application.state.documents.source_changes)
-    agent_recovery_worker = AgentRecoveryWorker(
-        application.state.agent,
-        application.state.sessions,
-        settings.agent_recovery_interval_seconds,
-        startup_recovered=startup_recovered,
-    )
-    index_worker.start()
-    import_worker.start()
-    source_watch_worker.start()
-    agent_recovery_worker.start()
-    try:
+    async with AsyncExitStack() as cleanup:
+        resources = InfraResources.create(settings)
+        cleanup.callback(resources.close)
+        application.state.infra = resources
+        application.state.users = UsersModule.create(
+            resources.database,
+            settings,
+            create_reset_delivery(settings),
+        )
+        application.state.documents = DocumentsModule.create(
+            resources.database,
+            resources.files,
+            resources.embeddings,
+            resources.document_content,
+        )
+        application.state.sessions = SessionsModule.create(resources.database)
+        application.state.agent = AgentModule.create(
+            resources.database,
+            settings,
+            resources.chat,
+            DocumentsSearchBridge(application.state.documents),
+        )
+        startup_recovered = False
+        try:
+            recover_after_restart(application.state.agent, application.state.sessions)
+            startup_recovered = True
+        except Exception:
+            # 数据库暂不可用时由周期恢复任务重试，不阻止应用完成资源装配。
+            _LOGGER.exception("agent.recovery.startup_failed")
+        index_worker = DocumentIndexWorker(application.state.documents.indexer)
+        import_worker = BatchImportWorker(application.state.documents.batch_importer)
+        source_watch_worker = SourceWatchWorker(
+            application.state.documents.source_changes
+        )
+        agent_recovery_worker = AgentRecoveryWorker(
+            application.state.agent,
+            application.state.sessions,
+            settings.agent_recovery_interval_seconds,
+            startup_recovered=startup_recovered,
+        )
+        for worker in (
+            index_worker,
+            import_worker,
+            source_watch_worker,
+            agent_recovery_worker,
+        ):
+            cleanup.push_async_callback(worker.close)
+            worker.start()
         yield
-    finally:
-        await import_worker.close()
-        await index_worker.close()
-        await source_watch_worker.close()
-        await agent_recovery_worker.close()
-        resources.close()
 
 
 def create_app(settings_override: Settings | None = None) -> FastAPI:
