@@ -1,3 +1,4 @@
+from contextlib import ExitStack
 from dataclasses import dataclass
 
 from redis import Redis
@@ -25,29 +26,38 @@ class InfraResources:
 
     @classmethod
     def create(cls, settings: Settings) -> "InfraResources":
-        database = Database(
-            settings.database_url,
-            pool_size=settings.database_pool_size,
-            max_overflow=settings.database_max_overflow,
-            pool_timeout_seconds=settings.database_pool_timeout_seconds,
-            connect_timeout_seconds=settings.database_connect_timeout_seconds,
-        )
-        redis_client = Redis.from_url(
-            settings.redis_url,
-            decode_responses=True,
-            socket_timeout=settings.redis_socket_timeout_seconds,
-        )
-        return cls(
-            database=database,
-            redis=redis_client,
-            cache=RedisCache(redis_client),
-            jobs=RedisJobQueue(redis_client, settings.redis_job_queue_name),
-            files=LocalFileStorage(settings.upload_dir),
-            embeddings=create_embedding_client(settings),
-            document_content=DefaultDocumentContentLoader(),
-            chat=create_chat_client(settings),
-        )
+        # 装配中途失败时也释放已创建的连接；成功后由 lifespan 统一关闭。
+        with ExitStack() as cleanup:
+            database = Database(
+                settings.database_url,
+                pool_size=settings.database_pool_size,
+                max_overflow=settings.database_max_overflow,
+                pool_timeout_seconds=settings.database_pool_timeout_seconds,
+                connect_timeout_seconds=settings.database_connect_timeout_seconds,
+            )
+            cleanup.callback(database.close)
+            redis_client = Redis.from_url(
+                settings.redis_url,
+                decode_responses=True,
+                socket_timeout=settings.redis_socket_timeout_seconds,
+                socket_connect_timeout=settings.redis_socket_timeout_seconds,
+            )
+            cleanup.callback(redis_client.close)
+            resources = cls(
+                database=database,
+                redis=redis_client,
+                cache=RedisCache(redis_client),
+                jobs=RedisJobQueue(redis_client, settings.redis_job_queue_name),
+                files=LocalFileStorage(settings.upload_dir),
+                embeddings=create_embedding_client(settings),
+                document_content=DefaultDocumentContentLoader(),
+                chat=create_chat_client(settings),
+            )
+            cleanup.pop_all()
+            return resources
 
     def close(self) -> None:
-        self.redis.close()
-        self.database.close()
+        try:
+            self.redis.close()
+        finally:
+            self.database.close()

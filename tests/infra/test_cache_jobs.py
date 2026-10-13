@@ -68,3 +68,35 @@ def test_job_cannot_be_acknowledged_without_a_claim() -> None:
 
     with pytest.raises(JobNotClaimedError):
         queue.acknowledge(job)
+
+
+def test_retry_rejects_unclaimed_job_without_adding_a_duplicate() -> None:
+    client = FakeRedis(decode_responses=True)
+    queue = RedisJobQueue(client, "test:jobs")
+    job = Job.create("refresh-index", {})
+
+    with pytest.raises(JobNotClaimedError):
+        queue.retry_or_fail(job)
+
+    assert client.llen("test:jobs") == 0
+    assert client.llen("test:jobs:failed") == 0
+
+
+def test_interrupted_claim_can_be_requeued_before_consumers_start() -> None:
+    client = FakeRedis(decode_responses=True)
+    queue = RedisJobQueue(client, "test:jobs")
+    job = Job.create("refresh-index", {"version_id": "v1"})
+    queue.enqueue(job)
+    assert queue.claim() == job
+
+    assert queue.requeue_interrupted() == 1
+    assert queue.requeue_interrupted() == 0
+    assert queue.claim() == job
+    queue.acknowledge(job)
+    assert client.llen("test:jobs:processing") == 0
+
+
+def test_interrupted_claim_recovery_requires_positive_limit() -> None:
+    queue = RedisJobQueue(FakeRedis(decode_responses=True), "test:jobs")
+    with pytest.raises(ValueError, match="recovery limit must be positive"):
+        queue.requeue_interrupted(limit=0)

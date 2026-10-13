@@ -4,8 +4,10 @@ infra 只负责把文本转换成固定维度向量，不决定文档如何切�
 """
 
 import hashlib
+import logging
 import math
 import re
+import time
 from collections.abc import Sequence
 from typing import Protocol
 
@@ -15,6 +17,7 @@ from server.config import Settings
 
 EMBEDDING_DIMENSIONS = 256
 _TOKEN_PATTERN = re.compile(r"[a-zA-Z0-9_+#.-]+|[\u3400-\u9fff]")
+_LOGGER = logging.getLogger("yoyo.model")
 
 
 class EmbeddingClient(Protocol):
@@ -47,8 +50,21 @@ class FakeEmbeddingClient:
 class OpenAIEmbeddingClient:
     """直接使用 OpenAI 兼容 SDK 获取文档和查询向量。"""
 
-    def __init__(self, api_key: str, base_url: str, model: str) -> None:
-        self._client = OpenAI(api_key=api_key, base_url=base_url)
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str,
+        model: str,
+        *,
+        timeout_seconds: float,
+        max_retries: int,
+    ) -> None:
+        self._client = OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=timeout_seconds,
+            max_retries=max_retries,
+        )
         self._model = model
         self.cache_key = (
             "openai:"
@@ -58,15 +74,39 @@ class OpenAIEmbeddingClient:
         )
 
     def embed(self, text: str) -> tuple[float, ...]:
-        response = self._client.embeddings.create(
-            model=self._model,
-            input=text,
-            dimensions=EMBEDDING_DIMENSIONS,
+        started = time.monotonic()
+        try:
+            response = self._client.embeddings.create(
+                model=self._model,
+                input=text,
+                dimensions=EMBEDDING_DIMENSIONS,
+            )
+            values: Sequence[float] = response.data[0].embedding
+            if len(values) != EMBEDDING_DIMENSIONS:
+                raise RuntimeError("Embedding 服务返回了错误的向量维度")
+            result = tuple(float(value) for value in values)
+        except Exception:
+            _LOGGER.exception(
+                "embedding.failed",
+                extra={
+                    "model": self._model,
+                    "duration_ms": round((time.monotonic() - started) * 1000, 2),
+                    "input_chars": len(text),
+                },
+            )
+            raise
+        usage = getattr(response, "usage", None)
+        _LOGGER.info(
+            "embedding.succeeded",
+            extra={
+                "model": self._model,
+                "duration_ms": round((time.monotonic() - started) * 1000, 2),
+                "input_chars": len(text),
+                "input_tokens": getattr(usage, "prompt_tokens", None),
+                "total_tokens": getattr(usage, "total_tokens", None),
+            },
         )
-        values: Sequence[float] = response.data[0].embedding
-        if len(values) != EMBEDDING_DIMENSIONS:
-            raise RuntimeError("Embedding 服务返回了错误的向量维度")
-        return tuple(float(value) for value in values)
+        return result
 
 
 def create_embedding_client(settings: Settings) -> EmbeddingClient:
@@ -76,5 +116,7 @@ def create_embedding_client(settings: Settings) -> EmbeddingClient:
             settings.openai_api_key,
             settings.openai_base_url,
             settings.embedding_model,
+            timeout_seconds=settings.openai_timeout_seconds,
+            max_retries=settings.openai_max_retries,
         )
     return FakeEmbeddingClient()

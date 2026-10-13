@@ -4,6 +4,7 @@ from typing import cast
 from uuid import uuid4
 
 from redis import Redis
+from redis.exceptions import WatchError
 
 
 class JobNotClaimedError(RuntimeError):
@@ -72,14 +73,42 @@ class RedisJobQueue:
         self._remove_claimed(job)
 
     def retry_or_fail(self, job: Job) -> bool:
-        self._remove_claimed(job)
         retried = replace(job, retry_count=job.retry_count + 1)
-        encoded = self._encode(retried)
-        if retried.retry_count > retried.max_retries:
-            self._client.lpush(self._failed_name, encoded)
-            return False
-        self._client.lpush(self._queue_name, encoded)
-        return True
+        should_retry = retried.retry_count <= retried.max_retries
+        destination = self._queue_name if should_retry else self._failed_name
+        claimed_value = self._encode(job)
+
+        # 从 processing 移除与重新入队必须同事务完成，进程中断不能丢任务。
+        while True:
+            with self._client.pipeline() as pipeline:
+                try:
+                    pipeline.watch(self._processing_name)  # type: ignore[no-untyped-call]
+                    if pipeline.lpos(self._processing_name, claimed_value) is None:
+                        raise JobNotClaimedError(
+                            f"job {job.id} is not claimed by this queue"
+                        )
+                    pipeline.multi()
+                    pipeline.lrem(self._processing_name, 1, claimed_value)
+                    pipeline.lpush(destination, self._encode(retried))
+                    removed, _ = pipeline.execute()
+                    if removed != 1:
+                        raise JobNotClaimedError(
+                            f"job {job.id} is not claimed by this queue"
+                        )
+                    return should_retry
+                except WatchError:
+                    continue
+
+    def requeue_interrupted(self, *, limit: int = 100) -> int:
+        """仅在没有运行中的消费者时，将上次中断后未确认的任务重新入队。"""
+        if limit < 1:
+            raise ValueError("recovery limit must be positive")
+        recovered = 0
+        for _ in range(limit):
+            if self._client.rpoplpush(self._processing_name, self._queue_name) is None:
+                break
+            recovered += 1
+        return recovered
 
     def _remove_claimed(self, job: Job) -> None:
         removed = self._client.lrem(self._processing_name, 1, self._encode(job))
