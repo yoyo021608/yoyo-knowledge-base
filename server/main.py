@@ -61,7 +61,9 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         except Exception:
             # 数据库暂不可用时由周期恢复任务重试，不阻止应用完成资源装配。
             _LOGGER.exception("agent.recovery.startup_failed")
-        index_worker = DocumentIndexWorker(application.state.documents.indexer)
+        index_worker = DocumentIndexWorker(
+            application.state.documents.indexer, queue=resources.jobs
+        )
         import_worker = BatchImportWorker(application.state.documents.batch_importer)
         source_watch_worker = SourceWatchWorker(
             application.state.documents.source_changes

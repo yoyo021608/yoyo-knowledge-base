@@ -188,6 +188,11 @@ class DocumentIndexer:
                     DocumentIndexTask.version_id == request.version_id,
                 )
             )
+            if version.index_status != "queued" or (
+                task is not None and task.status != "queued"
+            ):
+                # 通知可重复到达；failed 必须由显式重试重新排队。
+                return
             if task is None:
                 task = DocumentIndexTask(
                     id=str(uuid4()),
@@ -412,12 +417,12 @@ class DocumentIndexer:
                 task.error_message = message[:1000]
                 task.updated_at = now
 
-    def refresh_queued(self, limit: int = 100) -> int:
-        """供定时任务扫描 queued 任务；failed 只由显式重试再次执行。"""
+    def queued_requests(self, limit: int = 100) -> tuple[RefreshRequest, ...]:
+        """从数据库事实中读取待执行版本，供 Redis 投递和故障兜底共用。"""
         if limit < 1 or limit > 1000:
             raise InvalidDocumentInput("索引扫描条数必须在 1 到 1000 之间")
         with self._database.session() as session:
-            requests = tuple(
+            return tuple(
                 RefreshRequest(document_id=task.document_id, version_id=task.version_id)
                 for task in session.scalars(
                     select(DocumentIndexTask)
@@ -426,6 +431,10 @@ class DocumentIndexer:
                     .limit(limit)
                 ).all()
             )
+
+    def refresh_queued(self, limit: int = 100) -> int:
+        """Redis 不可用时直接处理数据库任务；failed 只由显式重试再次执行。"""
+        requests = self.queued_requests(limit)
         for request in requests:
             try:
                 self.refresh(request)
