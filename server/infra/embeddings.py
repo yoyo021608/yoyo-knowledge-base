@@ -14,6 +14,7 @@ from typing import Protocol
 from openai import OpenAI
 
 from server.config import Settings
+from server.infra.tracing import current_run_id
 
 EMBEDDING_DIMENSIONS = 256
 _TOKEN_PATTERN = re.compile(r"[a-zA-Z0-9_+#.-]+|[\u3400-\u9fff]")
@@ -87,8 +88,12 @@ class OpenAIEmbeddingClient:
             result = tuple(float(value) for value in values)
         except Exception:
             _LOGGER.exception(
-                "embedding.failed",
+                "embedding.failed run_id=%s model=%s duration_ms=%.2f",
+                current_run_id() or "-",
+                self._model,
+                (time.monotonic() - started) * 1000,
                 extra={
+                    "run_id": current_run_id(),
                     "model": self._model,
                     "duration_ms": round((time.monotonic() - started) * 1000, 2),
                     "input_chars": len(text),
@@ -97,8 +102,13 @@ class OpenAIEmbeddingClient:
             raise
         usage = getattr(response, "usage", None)
         _LOGGER.info(
-            "embedding.succeeded",
+            "embedding.succeeded run_id=%s model=%s input_tokens=%s total_tokens=%s",
+            current_run_id() or "-",
+            self._model,
+            getattr(usage, "prompt_tokens", None),
+            getattr(usage, "total_tokens", None),
             extra={
+                "run_id": current_run_id(),
                 "model": self._model,
                 "duration_ms": round((time.monotonic() - started) * 1000, 2),
                 "input_chars": len(text),

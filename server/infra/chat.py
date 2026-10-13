@@ -8,6 +8,7 @@ from typing import Any, Protocol, cast
 from openai import OpenAI
 
 from server.config import Settings
+from server.infra.tracing import current_run_id
 
 _LOGGER = logging.getLogger("yoyo.model")
 
@@ -70,21 +71,28 @@ class OpenAIChatClient:
             ),
             max_output_tokens=max_output_tokens,
         )
-        text = cast(str, response.output_text).strip()
-        if not text:
-            raise RuntimeError("模型没有返回文本")
         usage = getattr(response, "usage", None)
         if usage is not None:
             # 只记录服务端返回的真实用量，不把字符数冒充 Token。
             _LOGGER.info(
-                "model.complete.usage",
+                "model.complete.usage run_id=%s model=%s "
+                "input_tokens=%s output_tokens=%s total_tokens=%s",
+                current_run_id() or "-",
+                self._model,
+                getattr(usage, "input_tokens", None),
+                getattr(usage, "output_tokens", None),
+                getattr(usage, "total_tokens", None),
                 extra={
+                    "run_id": current_run_id(),
                     "model": self._model,
                     "input_tokens": getattr(usage, "input_tokens", None),
                     "output_tokens": getattr(usage, "output_tokens", None),
                     "total_tokens": getattr(usage, "total_tokens", None),
                 },
             )
+        text = cast(str, response.output_text).strip()
+        if not text:
+            raise RuntimeError("模型没有返回文本")
         return text
 
 
@@ -106,8 +114,11 @@ class TracedChatClient:
             output = self._inner.complete(system_prompt, messages, max_output_tokens)
         except Exception:
             _LOGGER.exception(
-                "model.complete.failed",
+                "model.complete.failed run_id=%s duration_ms=%.2f",
+                current_run_id() or "-",
+                (time.monotonic() - started) * 1000,
                 extra={
+                    "run_id": current_run_id(),
                     "duration_ms": round((time.monotonic() - started) * 1000, 2),
                     "input_chars": input_chars,
                     "message_count": len(messages),
@@ -115,8 +126,11 @@ class TracedChatClient:
             )
             raise
         _LOGGER.info(
-            "model.complete.succeeded",
+            "model.complete.succeeded run_id=%s duration_ms=%.2f",
+            current_run_id() or "-",
+            (time.monotonic() - started) * 1000,
             extra={
+                "run_id": current_run_id(),
                 "duration_ms": round((time.monotonic() - started) * 1000, 2),
                 "input_chars": input_chars,
                 "output_chars": len(output),

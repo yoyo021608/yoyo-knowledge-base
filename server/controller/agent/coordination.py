@@ -14,6 +14,7 @@ from server.agent.types import (
     RunBundle,
     WorkflowOutput,
 )
+from server.infra.tracing import trace_run
 from server.sessions.errors import SessionsError
 from server.sessions.module import SessionsModule
 from server.sessions.types import CitationInput, MessageView
@@ -254,9 +255,11 @@ def execute_prepared_question(
             if bundle.run.status == "paused":
                 agent.runs.continue_run(run_id, user_id)
             executing = agent.runs.execute_run(run_id, user_id, user_message.id)
-            output = agent.workflows.execute(
-                executing, user_id, executing.snapshot.options
-            )
+            # Run 标识只作为技术追踪上下文传递，业务状态仍由 Agent 持久化。
+            with trace_run(run_id):
+                output = agent.workflows.execute(
+                    executing, user_id, executing.snapshot.options
+                )
             generated = agent.runs.get(run_id, user_id).snapshot
             agent.runs.save_snapshot(
                 replace(generated, step="persist_answer"),
